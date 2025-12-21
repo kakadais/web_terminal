@@ -1,0 +1,161 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Web TTY</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- xterm.js from CDN -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css" />
+    <style>
+      html, body { height: 100%; margin: 0; background: #111; }
+      body { display: flex; flex-direction: column; }
+
+      #topbar {
+        height: 44px;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 0 12px;
+        color: #ddd;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        border-bottom: 1px solid #222;
+        flex: 0 0 auto;
+      }
+
+      /* 남는 화면을 전부 터미널이 먹게 */
+      #terminal {
+        flex: 1 1 auto;
+        min-height: 0;
+        width: 100%;
+      }
+
+      input {
+        background: #1b1b1b;
+        color: #ddd;
+        border: 1px solid #333;
+        padding: 6px 8px;
+      }
+
+      button {
+        background: #2a2a2a;
+        color: #ddd;
+        border: 1px solid #333;
+        padding: 6px 10px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="topbar">
+      <span>Token:</span>
+      <!-- ****로 보이게 -->
+      <input
+        id="token"
+        type="password"
+        placeholder="TERM_TOKEN"
+        size="28"
+        autocomplete="off"
+        autocapitalize="off"
+        spellcheck="false"
+      />
+      <button id="connect">Connect</button>
+      <span id="status"></span>
+    </div>
+
+    <div id="terminal"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
+    <script>
+      const statusEl = document.getElementById("status");
+      const tokenEl = document.getElementById("token");
+      const btn = document.getElementById("connect");
+      const termContainer = document.getElementById("terminal");
+
+      const term = new Terminal({ cursorBlink: true, convertEol: true });
+      const fitAddon = new FitAddon.FitAddon();
+      term.loadAddon(fitAddon);
+
+      term.open(termContainer);
+      term.writeln("Web TTY ready. Enter token and press Enter or click Connect.");
+
+      let ws = null;
+
+      function setStatus(s) { statusEl.textContent = s; }
+
+      function fitAndSyncSize() {
+        // DOM 레이아웃 반영 이후 fit이 더 안정적이라 rAF 사용
+        requestAnimationFrame(() => {
+          try { fitAddon.fit(); } catch (_) {}
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+          }
+        });
+      }
+
+      function connect() {
+        if (ws && ws.readyState === WebSocket.OPEN) return;
+
+        const token = tokenEl.value.trim();
+        if (!token) { term.writeln("Token required."); return; }
+
+        // 연결 전에 화면 크기에 맞게 먼저 fit -> 그 cols/rows로 접속
+        fitAndSyncSize();
+
+        const proto = location.protocol === "https:" ? "wss" : "ws";
+        const url = `${proto}://${location.host}/ws?token=${encodeURIComponent(token)}&cols=${term.cols}&rows=${term.rows}`;
+        ws = new WebSocket(url);
+
+        ws.onopen = () => {
+          setStatus("connected");
+          term.focus();
+          fitAndSyncSize(); // 접속 직후 한 번 더(정확도)
+        };
+
+        ws.onmessage = (ev) => {
+          let msg;
+          try { msg = JSON.parse(ev.data); } catch { return; }
+          if (msg.type === "data") term.write(msg.data);
+          if (msg.type === "info") term.writeln(`\r\n[info] ${msg.message}\r\n`);
+        };
+
+        ws.onclose = (e) => {
+          setStatus(`closed (${e.code})`);
+          term.writeln(`\r\n[closed] code=${e.code} reason=${e.reason}\r\n`);
+        };
+
+        ws.onerror = () => {
+          setStatus("error");
+          term.writeln("\r\n[error]\r\n");
+        };
+
+        term.onData((data) => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "data", data }));
+          }
+        });
+      }
+
+      btn.addEventListener("click", connect);
+
+      // Enter 키로 connect
+      tokenEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") connect();
+      });
+
+      // 브라우저 리사이즈 시 터미널 fit + 서버에 resize 전송
+      window.addEventListener("resize", fitAndSyncSize);
+
+      // 터미널 영역만 변해도 따라가게(상단바 높이/폰트 변화 등)
+      const ro = new ResizeObserver(() => fitAndSyncSize());
+      ro.observe(termContainer);
+
+      // 초기 포커스/초기 fit
+      tokenEl.focus();
+      fitAndSyncSize();
+    </script>
+  </body>
+</html>
+
