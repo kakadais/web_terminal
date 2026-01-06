@@ -1,0 +1,6 @@
+{"ip":"211.42.152.174","failCount":2,"firstFailAt":1766292130128,"blockedUntil":0,"lastFailAt":1766292131408,"_id":"bmmE7dKZJZPRq0YD"}
+{"$$indexCreated":{"fieldName":"ip","unique":true,"sparse":false}}
+{"$$indexCreated":{"fieldName":"blockedUntil","unique":false,"sparse":false}}
+{"$$indexCreated":{"fieldName":"ip","unique":true}}
+{"$$indexCreated":{"fieldName":"blockedUntil"}}
+{"$$deleted":true,"_id":"bmmE7dKZJZPRq0YD"}
