@@ -1,14 +1,11 @@
 "use strict";
 
+const { HOST, PORT, TOKEN } = require("./lib/config");
 const path = require("path");
 const http = require("http");
 const express = require("express");
 const WebSocket = require("ws");
 const pty = require("./lib/pty");
-
-const HOST = process.env.HOST || "0.0.0.0"; // 외부 공개 금지: 기본 localhost
-const PORT = Number(process.env.PORT || 5894);
-const TOKEN = process.env.TERM_TOKEN || "mStartup!24"; // 반드시 변경
 
 const app = express();
 app.use(express.static(path.join(__dirname, "public")));
@@ -110,4 +107,3 @@ server.listen(PORT, HOST, () => {
   console.log(`Web TTY: http://${HOST}:${server.address().port}`);
   console.log(`Tip: HOST=127.0.0.1 PORT=${server.address().port} node server.js`);
 });
-

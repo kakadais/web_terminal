@@ -46,6 +46,14 @@ not tracked because node-pty includes native binaries for the host platform.
 
 ## Run
 
+For a new environment, create the local configuration once:
+
+```bash
+cp .env.example .env.local
+```
+
+Set `TERM_TOKEN` in `.env.local`, then start the server:
+
 ```bash
 node server.js
 ```
@@ -72,13 +80,29 @@ http://0.0.0.0:5894
 
 ## Environment Variables
 
-| Name         | Description             | Default       |
-| ------------ | ----------------------- | ------------- |
-| `HOST`       | Bind address            | `0.0.0.0`     |
-| `PORT`       | HTTP / WebSocket port   | `5894`        |
-| `TERM_TOKEN` | Access token (required) | `mStartup!24` |
+Both server entrypoints automatically load the project-root `.env.local`, even
+when launched from another working directory. Existing process environment
+variables take precedence over file values. The loader uses
+[dotenv](https://github.com/motdotla/dotenv).
 
-**You must change `TERM_TOKEN` before any real use.**
+`.env.local` contains each environment's actual settings and is ignored by Git.
+`.env.example` is the tracked deployment reference and contains no actual token.
+The server refuses to start if `TERM_TOKEN` is missing or blank.
+
+| Name                  | Description                               | Default          |
+| --------------------- | ----------------------------------------- | ---------------- |
+| `HOST`                | Bind address                              | `0.0.0.0`        |
+| `PORT`                | HTTP / WebSocket port                     | `5894`           |
+| `TERM_TOKEN`          | Required access token                     | No default       |
+| `TRUST_PROXY`         | Trust client IP headers behind a proxy    | `false`          |
+| `TERM_MAX_FAILS`      | Failed tokens before an IP is blocked     | `5`              |
+| `TERM_BLOCK_MS`       | IP block duration in milliseconds         | `86400000`       |
+| `TERM_FAIL_WINDOW_MS` | Failure counting window in milliseconds   | `600000`         |
+| `TERM_DB_DIR`         | Security DB directory, relative to root   | `./data`         |
+| `TERM_DB_FILE`        | Security DB filename                      | `ip_security.db` |
+
+Proxy and IP block settings are used by `server_blacklist.js`. The shell and
+home directory use the host's `SHELL` and `HOME`; Windows uses `powershell.exe`.
 
 ---
 

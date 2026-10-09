@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 
+const { HOST, PORT, TOKEN, TRUST_PROXY, SECURITY } = require("./lib/config");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
@@ -8,29 +9,6 @@ const express = require("express");
 const WebSocket = require("ws");
 const pty = require("./lib/pty");
 const Datastore = require("@seald-io/nedb");
-
-// =====================
-// 기본 설정
-// =====================
-const HOST = process.env.HOST || "0.0.0.0";
-const PORT = Number(process.env.PORT || 5894);
-const TOKEN = process.env.TERM_TOKEN || "mStartup!24";
-
-// 프록시(nginx/LB) 뒤에서만 true로 켜기. (지금은 nginx 없으니 기본 false 권장)
-const TRUST_PROXY =
-  String(process.env.TRUST_PROXY || "").toLowerCase() === "true" ||
-  String(process.env.TRUST_PROXY || "") === "1";
-
-// =====================
-// 보안/차단 설정
-// =====================
-const SECURITY = {
-  maxFails: Number(process.env.TERM_MAX_FAILS || 5),
-  blockMs: Number(process.env.TERM_BLOCK_MS || 24 * 60 * 60 * 1000), // 24h
-  windowMs: Number(process.env.TERM_FAIL_WINDOW_MS || 10 * 60 * 1000), // 10m
-  dbDir: process.env.TERM_DB_DIR || path.join(__dirname, "data"),
-  dbFile: process.env.TERM_DB_FILE || "ip_security.db",
-};
 
 fs.mkdirSync(SECURITY.dbDir, { recursive: true });
 
@@ -271,4 +249,3 @@ server.listen(PORT, HOST, () => {
   console.log(`Security: maxFails=${SECURITY.maxFails}, blockMs=${SECURITY.blockMs}, windowMs=${SECURITY.windowMs}`);
   console.log(`DB: ${path.join(SECURITY.dbDir, SECURITY.dbFile)}`);
 });
-
