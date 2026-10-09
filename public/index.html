@@ -96,7 +96,7 @@
       }
 
       function connect() {
-        if (ws && ws.readyState === WebSocket.OPEN) return;
+        if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
 
         const token = tokenEl.value.trim();
         if (!token) { term.writeln("Token required."); return; }
@@ -130,13 +130,14 @@
           setStatus("error");
           term.writeln("\r\n[error]\r\n");
         };
-
-        term.onData((data) => {
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: "data", data }));
-          }
-        });
       }
+
+      // Register once so reconnecting does not send every keystroke twice.
+      term.onData((data) => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "data", data }));
+        }
+      });
 
       btn.addEventListener("click", connect);
 

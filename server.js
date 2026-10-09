@@ -4,7 +4,7 @@ const path = require("path");
 const http = require("http");
 const express = require("express");
 const WebSocket = require("ws");
-const pty = require("node-pty");
+const pty = require("./lib/pty");
 
 const HOST = process.env.HOST || "0.0.0.0"; // 외부 공개 금지: 기본 localhost
 const PORT = Number(process.env.PORT || 5894);
@@ -41,13 +41,20 @@ wss.on("connection", (ws, req) => {
 
   const shell = process.platform === "win32" ? "powershell.exe" : (process.env.SHELL || "bash");
 
-  const term = pty.spawn(shell, [], {
-    name: "xterm-256color",
-    cols,
-    rows,
-    cwd: process.env.HOME || process.cwd(),
-    env: process.env,
-  });
+  let term;
+  try {
+    term = pty.spawn(shell, [], {
+      name: "xterm-256color",
+      cols,
+      rows,
+      cwd: process.env.HOME || process.cwd(),
+      env: process.env,
+    });
+  } catch (err) {
+    console.error("Terminal startup failed:", err.message);
+    ws.close(1011, "Unable to start terminal");
+    return;
+  }
 
   const send = (obj) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
@@ -55,9 +62,16 @@ wss.on("connection", (ws, req) => {
 
   send({ type: "info", message: `connected: ${shell} (${cols}x${rows})` });
 
-  term.on("data", (data) => {
+  term.onData((data) => {
     // 터미널 출력 -> 브라우저
     send({ type: "data", data });
+  });
+
+  term.onExit(({ exitCode }) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      send({ type: "info", message: `terminal exited (${exitCode})` });
+      ws.close(1000, "Terminal exited");
+    }
   });
 
   ws.on("message", (raw) => {
@@ -93,8 +107,7 @@ wss.on("connection", (ws, req) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`Web TTY: http://${HOST}:${PORT}`);
-  console.log(`TOKEN: ${TOKEN}`);
-  console.log(`Tip: TERM_TOKEN=... HOST=127.0.0.1 PORT=${PORT} node server.js`);
+  console.log(`Web TTY: http://${HOST}:${server.address().port}`);
+  console.log(`Tip: HOST=127.0.0.1 PORT=${server.address().port} node server.js`);
 });
 
