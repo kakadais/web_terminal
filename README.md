@@ -36,8 +36,11 @@ It is intended for **local, internal, or controlled environments only**.
 ## Installation
 
 ```bash
-npm install express ws node-pty
+npm ci
 ```
+
+Install dependencies on the machine that runs the service. `node_modules` is
+not tracked because node-pty includes native binaries for the host platform.
 
 ---
 
