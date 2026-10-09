@@ -6,7 +6,7 @@ const fs = require("fs");
 const http = require("http");
 const express = require("express");
 const WebSocket = require("ws");
-const pty = require("node-pty");
+const pty = require("./lib/pty");
 const Datastore = require("@seald-io/nedb");
 
 // =====================
@@ -206,6 +206,9 @@ wss.on("connection", async (ws, req) => {
     // 토큰 성공 -> 실패 기록 초기화
     await recordSuccess(ip);
 
+    // The browser may disconnect while the database operations are pending.
+    if (ws.readyState !== WebSocket.OPEN) return;
+
     const cols = Math.max(20, Math.min(300, Number(q.cols || 80)));
     const rows = Math.max(5, Math.min(120, Number(q.rows || 24)));
     const shell = process.platform === "win32" ? "powershell.exe" : (process.env.SHELL || "bash");
@@ -224,8 +227,15 @@ wss.on("connection", async (ws, req) => {
 
     send({ type: "info", message: `connected: ${shell} (${cols}x${rows}) ip=${ip}` });
 
-    term.on("data", (data) => {
+    term.onData((data) => {
       send({ type: "data", data });
+    });
+
+    term.onExit(({ exitCode }) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        send({ type: "info", message: `terminal exited (${exitCode})` });
+        ws.close(1000, "Terminal exited");
+      }
     });
 
     ws.on("message", (raw) => {
@@ -250,13 +260,13 @@ wss.on("connection", async (ws, req) => {
     ws.on("close", kill);
     ws.on("error", kill);
   } catch (e) {
+    console.error("Terminal connection failed:", e.message);
     try { ws.close(1011, "Server error"); } catch {}
   }
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`Web TTY: http://${HOST}:${PORT}`);
-  console.log(`TOKEN: ${TOKEN}`);
+  console.log(`Web TTY: http://${HOST}:${server.address().port}`);
   console.log(`TRUST_PROXY: ${TRUST_PROXY}`);
   console.log(`Security: maxFails=${SECURITY.maxFails}, blockMs=${SECURITY.blockMs}, windowMs=${SECURITY.windowMs}`);
   console.log(`DB: ${path.join(SECURITY.dbDir, SECURITY.dbFile)}`);

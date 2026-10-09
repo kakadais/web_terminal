@@ -47,6 +47,18 @@ npm install express ws node-pty
 node server.js
 ```
 
+Use `node server_blacklist.js` to enable persistent IP failure limits.
+
+The shell runs on the machine hosting this Node.js process. To use a remote
+server's shell, run the service on that server or run `ssh` inside the terminal.
+
+On macOS, startup restores the executable permission of node-pty's
+`spawn-helper` when needed. Without that permission, a valid token can still
+result in `closed (1011)` with `posix_spawnp failed` in the server log.
+Other startup failures are logged; exiting the shell closes the terminal
+connection normally. A `closed (1008)` response means `Unauthorized` or
+`Blocked`, as shown in the close reason.
+
 By default, the server listens on:
 
 ```text
