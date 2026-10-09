@@ -1,0 +1,9 @@
+.env*
+.deploy/
+.meteor/build/
+tests/
+scripts/
+ops/
+deploy.sh
+README.md
+AGENTS.md
