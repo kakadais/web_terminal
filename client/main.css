@@ -38,11 +38,15 @@ textarea { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 12px; 
 .toolbar { display: flex; gap: 7px; align-items: center; }
 .toolbar button { padding: 4px 7px; font-size: 11px; }
 .icon-button { padding: 0; width: 30px; height: 30px; display: grid; place-items: center; font-size: 22px; background: transparent; border-color: transparent; }
-.toolbar .add-button { background: #1d3936; border-color: #335650; color: #64d3b0; font-size: 20px; width: 26px; height: 26px; }
+.toolbar .add-button { background: #1d3936; border-color: #335650; color: #64d3b0; width: 26px; height: 26px; padding: 0; display: flex; align-items: center; justify-content: center; line-height: 1; }
+.add-button svg { display: block; flex-shrink: 0; }
+.pinned-servers { padding: 0 9px 9px; flex-shrink: 0; }
+.pinned-servers .server-row { background: #14282a; border-color: #2a4442; }
+.pinned-badge { font-size: 9px; color: #80bca9; margin-right: 12px; flex-shrink: 0; }
 .search-box { display: flex; align-items: center; gap: 7px; margin: 0 17px 15px; border: 1px solid #263646; border-radius: 7px; background: #0e1620; padding: 0 9px; color: #6e839b; }
 .search-box span { font-size: 23px; }
 .search-box input { border: 0; font-size: 12px; background: transparent; padding: 9px 0; }
-.server-list { overflow-y: auto; flex: 1; padding: 0 9px 15px; scrollbar-width: thin; scrollbar-color: #2e4153 transparent; }
+.server-list { overflow-y: auto; flex: 1; min-height: 0; padding: 0 9px 15px; scrollbar-width: thin; scrollbar-color: #2e4153 transparent; }
 .server-row { display: flex; align-items: center; border: 1px solid transparent; border-radius: 8px; margin-bottom: 4px; }
 .server-row:hover { background: #1a2634; }
 .server-row.active { background: #1c3435; border-color: #355a50; }
@@ -110,6 +114,12 @@ textarea { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 12px; 
 .modal-backdrop { position: fixed; inset: 0; background: #060a11b8; display: flex; justify-content: center; align-items: center; z-index: 20; padding: 25px; backdrop-filter: blur(4px); }
 .dialog { width: 520px; max-width: 100%; max-height: 90dvh; overflow-y: auto; padding: 26px; background: #16212f; border: 1px solid #35475c; border-radius: 13px; box-shadow: 0 20px 100px #0008; }
 .dialog.compact { width: 420px; }
+.dialog.config-dialog { width: 720px; }
+.config-block > span { display: flex; flex-wrap: wrap; gap: 5px 12px; align-items: baseline; }
+.config-block small { color: #7990a5; font-size: 10px; overflow-wrap: anywhere; }
+.config-block textarea { line-height: 1.6; tab-size: 4; white-space: pre; overflow-x: auto; }
+.shared-config { color: #dbb677; }
+.reload-config { display: block; margin-top: 9px; font-size: 11px; padding: 5px 8px; }
 .dialog-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 12px; }
 .dialog h2 { font-size: 20px; margin: 7px 0 0; font-weight: 500; }
 .form-row { display: flex; gap: 12px; }
