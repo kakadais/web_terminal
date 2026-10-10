@@ -1,13 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Meteor } from 'meteor/meteor';
 import { Accounts } from 'meteor/accounts-base';
 import { useTracker } from 'meteor/react-meteor-data';
-import { Terminal } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import './main.css';
 import { Servers, ConnectionHistory } from '../imports/api/collections';
+import TerminalPane from './TerminalPane';
 
 const call = (name, ...args) => Meteor.callAsync(name, ...args);
 const errorMessage = error => error?.reason || error?.message || '요청을 처리하지 못했습니다.';
@@ -121,46 +120,6 @@ function PasswordDialog({ onClose, notify }) {
   </form></div>;
 }
 
-function TerminalPane({ record, visible, attempt, onStatus }) {
-  const container = useRef(null);
-  useEffect(() => {
-    const terminal = new Terminal({ cursorBlink: true, fontSize: 14, fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
-      scrollback: 10000, theme: { background: '#0b1018', foreground: '#d7e1ec', cursor: '#64d3b0', selectionBackground: '#294858' } });
-    const fit = new FitAddon(); terminal.loadAddon(fit); terminal.open(container.current);
-    let socket; let disposed = false; let finished = false;
-    const status = value => { if (!disposed) onStatus(record._id, value); };
-    const resize = () => {
-      if (!container.current?.clientWidth || !container.current?.clientHeight) return;
-      fit.fit();
-      if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows }));
-    };
-    const observer = new ResizeObserver(resize); observer.observe(container.current);
-    const input = terminal.onData(data => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', data })); });
-    terminal.writeln(`\x1b[38;2;100;211;176mConnecting to ${record.name}…\x1b[0m`);
-    status('connecting'); resize();
-    call('terminal.open', record._id).then(grant => {
-      if (disposed) return;
-      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      socket = new WebSocket(`${protocol}//${location.host}${grant.path}`);
-      socket.onopen = () => socket.send(JSON.stringify({ type: 'auth', ticket: grant.ticket, cols: terminal.cols, rows: terminal.rows }));
-      socket.onmessage = event => {
-        const message = JSON.parse(event.data);
-        if (message.type === 'output') terminal.write(message.data);
-        else if (message.type === 'ready') { status('connected'); resize(); terminal.focus(); }
-        else if (message.type === 'exit') {
-          finished = true; status('closed'); terminal.writeln(`\r\n\x1b[90m터미널 종료 (exit ${message.exitCode})\x1b[0m`);
-        } else if (message.type === 'error') { status('error'); terminal.writeln(`\r\n\x1b[31m${message.message}\x1b[0m`); }
-      };
-      socket.onerror = () => { status('error'); terminal.writeln('\r\n터미널 연결에 실패했습니다.'); };
-      socket.onclose = () => { if (!disposed && !finished) { status('closed'); terminal.writeln('\r\n\x1b[90m연결이 종료되었습니다. 다시 연결할 수 있습니다.\x1b[0m'); } };
-    }).catch(error => { if (!disposed) { status('error'); terminal.writeln(`\r\n${errorMessage(error)}`); } });
-    return () => {
-      disposed = true; observer.disconnect(); input.dispose(); socket?.close(1000, 'Tab closed'); terminal.dispose();
-    };
-  }, [record._id, attempt]);
-  return <div className={`terminal-pane ${visible ? 'visible' : ''}`} ref={container} aria-label={`${record.name} 터미널`} />;
-}
-
 function ServerRow({ record, active, status, connect, edit }) {
   return <div className={`server-row ${active ? 'active' : ''}`} data-source={record.source}>
     <button className="server-connect" onClick={() => connect(record)}><span className={`server-dot ${status || ''}`} /><span className="server-text"><strong>{record.name}</strong><small>{address(record)}</small><span className="server-tags">{labels[record.authType]}{record.proxyJump && ' · Jump'}{record.configAvailable === false && ' · config 없음'}</span></span></button>
@@ -199,7 +158,7 @@ function Workspace({ user }) {
   };
   const sync = async () => {
     setSyncing(true);
-    try { const result = await call('servers.sync'); notify(`${result.imported}개 서버를 동기화했습니다.${result.skipped.length ? ` 제외: ${result.skipped.join(', ')}` : ''}`); }
+    try { const result = await call('servers.sync'); notify(`${result.imported}개 서버를 동기화했습니다.${result.removed ? ` 사라진 서버 ${result.removed}개 삭제.` : ''}${result.skipped.length ? ` 설정 오류: ${result.skipped.join(', ')}` : ''}`); }
     catch (error) { notify(errorMessage(error)); }
     finally { setSyncing(false); }
   };

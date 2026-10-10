@@ -23,10 +23,13 @@ export const config = {
   maxSessions: Number(process.env.TERMINAL_MAX_SESSIONS || 12),
   ticketSeconds: Number(process.env.TERMINAL_TICKET_SECONDS || 30),
   idleMinutes: Number(process.env.TERMINAL_IDLE_MINUTES || 60),
+  uploadMaxBytes: Number(process.env.UPLOAD_MAX_MB || 1024) * 1024 * 1024,
+  uploadTimeoutSeconds: Number(process.env.UPLOAD_TIMEOUT_SECONDS || 600),
+  uploadConcurrency: Number(process.env.UPLOAD_MAX_CONCURRENT || 2),
 };
 if (!/^[a-f0-9]{64}$/i.test(config.encryptionKey)) {
   throw new Error('CREDENTIAL_ENCRYPTION_KEY must contain 64 hexadecimal characters');
 }
-for (const name of ['maxSessions', 'ticketSeconds', 'idleMinutes']) {
+for (const name of ['maxSessions', 'ticketSeconds', 'idleMinutes', 'uploadMaxBytes', 'uploadTimeoutSeconds', 'uploadConcurrency']) {
   if (!Number.isInteger(config[name]) || config[name] < 1) throw new Error(`Invalid ${name}`);
 }
