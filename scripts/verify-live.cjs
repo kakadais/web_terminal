@@ -22,11 +22,13 @@ async function main() {
   const output = [];
   const terminalEvents = [];
   const created = [];
+  let activeSessionId;
   page.on('pageerror', error => errors.push(error.message));
   page.on('websocket', ws => ws.on('framereceived', ({ payload }) => {
     if (typeof payload !== 'string') return;
     inbound.push(payload);
-    try { const message = JSON.parse(payload); if (message.type === 'output') output.push(message.data);
+    try { const message = JSON.parse(payload); if (message.type === 'ready') activeSessionId = message.sessionId;
+      if (message.type === 'output') output.push(message.data);
       else if (message.type) terminalEvents.push({ type: message.type, message: message.message, exitCode: message.exitCode }); } catch (_) {}
   }));
   const method = (name, ...args) => page.evaluate(({ name, args }) => Meteor.callAsync(name, ...args), { name, args });
@@ -165,6 +167,19 @@ async function main() {
     const forwardedCode = execFileSync('ssh', ['server', 'curl -sS --max-time 10 -o /dev/null -w "%{http_code}" http://127.0.0.1:22561/'], { encoding: 'utf8', timeout: 15_000 }).trim();
     assert.match(forwardedCode, /^(200|301|302|308)$/);
     console.log('SSH config LocalForward opened a working HTTP tunnel');
+    const uploadName = `__web_terminal_forward_${runId}.bin`;
+    const uploadBytes = crypto.randomBytes(4097);
+    const upload = await method('terminal.upload.prepare', activeSessionId, [{ name: uploadName, size: uploadBytes.length }], '/tmp');
+    const uploadResult = await page.evaluate(async ({ token, base64 }) => (await fetch('/terminal/upload', { method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream', 'X-Upload-Ticket': token }, body: Uint8Array.from(atob(base64), c => c.charCodeAt(0)) })).status,
+    { token: upload.items[0].token, base64: uploadBytes.toString('base64') });
+    assert.equal(uploadResult, 201, 'Uploads must not bind a second LocalForward port');
+    const uploadedHash = crypto.createHash('sha256').update(uploadBytes).digest('hex');
+    await page.locator('.terminal-pane.visible .xterm-helper-textarea').focus();
+    await page.keyboard.type(`sha256sum -- /tmp/${uploadName}; rm -f -- /tmp/${uploadName}`);
+    await page.keyboard.press('Enter');
+    await waitForOutput(uploadedHash);
+    console.log('File upload preserved the existing LocalForward and matched the binary hash');
     await page.getByRole('button', { name: `${testName} 연결 종료`, exact: true }).click();
     await remove(testId); created.splice(created.indexOf(testId), 1);
     if (env.VERIFY_JUMP_ALIAS) {

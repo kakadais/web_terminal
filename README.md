@@ -30,6 +30,9 @@ chmod 600 .env.local
 | `TERMINAL_MAX_SESSIONS` | 사용자별 동시 터미널 수. 기본 12. |
 | `TERMINAL_TICKET_SECONDS` | 1회용 터미널 접속권 유효 시간. 기본 30초. |
 | `TERMINAL_IDLE_MINUTES` | 입력 없이 유지할 시간. 기본 60분. |
+| `UPLOAD_MAX_MB` | 파일 하나의 최대 크기. 기본 1024MB. nginx의 `/terminal/upload` 크기 제한도 함께 조정. |
+| `UPLOAD_TIMEOUT_SECONDS` | 업로드 접속권과 전송 제한 시간. 기본 600초. nginx 시간 제한도 함께 조정. |
+| `UPLOAD_MAX_CONCURRENT` | 사용자별 동시 전송 수. 기본 2. 각 터미널의 파일은 순차 전송. |
 | `DEV_PORT` | 로컬 개발 포트. 기본 5160. |
 
 MongoDB에는 `users`, `servers`, `connection_history`가 저장됩니다. 앱 전용 DB 계정은 `web_terminal`의 `readWrite` 권한과 Meteor Change Streams에 필요한 `getDefaultRWConcern` 조회 권한만 사용합니다. 별도 관리자 URI를 알고 있는 운영 환경에서는 `ops/provision-database.py`를 참고해 계정을 준비합니다. 이 스크립트는 현재 서버의 PM2에 저장된 MongoDB 관리자 URI를 읽고, 이름이 고정된 앱 전용 계정만 생성합니다. 비밀번호를 로그로 출력하거나 기존 계정 비밀번호를 바꾸지 않습니다.
@@ -58,7 +61,7 @@ tmux attach -t web-terminal-dev
 tmux kill-session -t web-terminal-dev
 ```
 
-`meteor npm test`는 인증 정보 암호화, SSH config Include와 기본값 해석, config 블록 편집·공유 별칭 삭제·심볼릭 링크 보존·문법 오류 및 동시 수정 거부, 입력 검증, dotenv의 안전한 전달을 검사합니다. 배포 후 `meteor npm run verify`는 Chrome으로 로그인·목록·Sync·고정 배포 서버의 로컬 셸·실제 SSH 명령·config 등록/수정/삭제·모바일 화면을 확인합니다. 기본 검증 대상 SSH 별칭은 `nginx`입니다. `VERIFY_CONFIG_ALIAS`로 변경하고 `VERIFY_JUMP_ALIAS`로 기존 경유 접속과 새 ProxyJump 블록 검사 대상을 추가하며, Chrome 경로는 `CHROME_PATH`로 지정합니다. 결과 화면은 Git에서 제외한 `test-results/`에 저장합니다. 검증은 임시 `__verify_*` config 블록을 추가하고 완료 후 삭제합니다. `127.0.0.1:22561`의 LocalForward로 nginx의 HTTP 포트 80도 검사하므로 이 검증 포트는 사용 중이지 않아야 합니다. 임시 `.deploy/qa.json` 및 `.deploy/qa_identity`가 있을 때만 별도 SSH 비밀번호·키 접속 검사도 실행합니다.
+`meteor npm test`는 인증 정보 암호화, SSH config Include와 기본값 해석, config 블록 편집·공유 별칭 삭제·심볼릭 링크 보존·문법 오류 및 동시 수정 거부, 바이너리 업로드·기존 파일 보호·중단 처리·한글 작업 경로·PID 추적, 입력 검증, dotenv의 안전한 전달을 검사합니다. 배포 후 `meteor npm run verify`는 Chrome으로 로그인·목록·Sync·고정 배포 서버의 로컬 셸·실제 SSH 명령·config 등록/수정/삭제·모바일 화면을 확인합니다. 기본 검증 대상 SSH 별칭은 `nginx`입니다. `VERIFY_CONFIG_ALIAS`로 변경하고 `VERIFY_JUMP_ALIAS`로 기존 경유 접속과 새 ProxyJump 블록 검사 대상을 추가하며, Chrome 경로는 `CHROME_PATH`로 지정합니다. 결과 화면은 Git에서 제외한 `test-results/`에 저장합니다. 검증은 임시 `__verify_*` config 블록을 추가하고 완료 후 삭제합니다. `127.0.0.1:22561`의 LocalForward로 nginx의 HTTP 포트 80과 포워딩 중 별도 SSH 업로드도 검사하므로 이 검증 포트는 사용 중이지 않아야 합니다. 임시 `.deploy/qa.json` 및 `.deploy/qa_identity`가 있을 때만 별도 SSH 비밀번호·키 접속 검사도 실행합니다.
 
 ## 배포
 
@@ -97,13 +100,23 @@ curl -fsS https://terminal.digix.kr/health
 
 목록 최상단의 `server`는 앱이 배포된 머신에서 실행 계정의 로그인 셸을 바로 엽니다. SSH config와 별개로 자동 생성되며 검색·목록 스크롤에도 고정되고 삭제할 수 없습니다. 이름은 `DEPLOY_SERVER_NAME`으로 변경합니다. SSH로 등록된 같은 이름의 별칭은 별도의 원격 접속 항목입니다.
 
-최초 관리자 생성 후 SSH config 목록을 가져옵니다. `Host *`·패턴은 제외하고 명시된 별칭을 가져오며, `Include`와 `ProxyJump`, `ProxyCommand`, `IdentityFile` 등의 실제 값은 OpenSSH의 `ssh -G`로 해석합니다. 기존 config에서 `User` 뒤에 `#` 주석이 붙은 경우 실제 사용자 이름만 가져오고 SSH 실행 시 그 이름을 명시합니다. 접속할 때에도 최신 config를 다시 읽습니다. 주소 등 설정이 잘못된 별칭은 Sync 결과에 이름이 표시됩니다. Sync는 등록된 인증 정보를 보존하고, 외부에서 사라진 config 별칭은 연결할 수 없는 상태로 표시합니다.
+최초 관리자 생성 후 SSH config 목록을 가져옵니다. `Host *`·패턴은 제외하고 명시된 별칭을 가져오며, `Include`와 `ProxyJump`, `ProxyCommand`, `IdentityFile` 등의 실제 값은 OpenSSH의 `ssh -G`로 해석합니다. 기존 config에서 `User` 뒤에 `#` 주석이 붙은 경우 실제 사용자 이름만 가져오고 SSH 실행 시 그 이름을 명시합니다. 접속할 때에도 최신 config를 다시 읽습니다. Sync는 config를 다시 읽어 새 별칭을 추가하고 기존 별칭의 접속 설정을 갱신하며, 파일에서 사라진 별칭은 목록에서 삭제합니다. 유지되는 별칭의 인증 정보와 고정 배포 서버는 보존합니다. config에 남아 있지만 해석할 수 없는 별칭은 삭제하지 않고 설정 오류로 표시합니다.
 
 `+` 및 각 서버의 `⋯` 설정은 실제 `Host` 블록을 보여주는 편집기입니다. HostName·User·Port·경유 접속·포트 포워딩을 직접 편집합니다. Include 파일의 블록도 해당 실제 파일에 저장하며, 같은 별칭의 Host 블록이 여러 개면 모두 표시합니다. 공유 Host 블록은 다른 별칭도 영향을 받는다는 안내가 나옵니다. 새 블록은 루트 config의 첫 Host/Match 블록 앞에 추가합니다. 저장 전 별도 임시 config에서 OpenSSH 문법과 유효 주소를 검사하며, 파일이 편집 도중 외부에서 바뀌면 최신 내용을 다시 불러와야 합니다. 원본을 권한 0600으로 백업한 뒤 실제 대상 파일을 원자적으로 교체하고, `.ssh/config`와 Include의 심볼릭 링크는 유지합니다. 다른 블록·Match·주석은 그대로 보존합니다. 삭제는 실제 config에서도 해당 별칭을 제거하며, 공유 블록의 다른 별칭은 유지합니다. 기존 수동 등록 항목도 편집 후 저장하면 config 항목으로 전환됩니다.
 
 config 인증은 운영 서버에 이미 있는 개인 키 또는 SSH agent를 사용합니다. 비밀번호가 필요한 서버는 해당 서버의 설정에서 비밀번호 인증으로 바꾸세요. 키 인증에서는 config의 IdentityFile을 사용하거나 개인 키를 업로드할 수 있습니다. 키에 암호가 있으면 키 암호도 입력합니다. 비밀번호·업로드한 개인 키·키 암호는 config에 기록하지 않고 암호화한 DB 필드에 별도 저장합니다. SSH config 경로와 IdentityFile은 앱 서버 기준이며, 경유 서버의 별도 인증은 경유 서버에 맞는 SSH config/키를 준비해야 합니다.
 
 새 호스트 키는 known_hosts에 저장하며 변경된 호스트 키는 거부합니다. ProxyJump의 모든 경유 단계도 앱의 같은 known_hosts를 사용하도록 임시 Include config를 적용합니다. ProxyJump/ProxyCommand 및 LocalForward/RemoteForward는 SSH config를 따릅니다. 포트 포워딩의 리스닝 포트는 앱 서버에 열리고, 같은 포워딩 포트로 여러 탭을 열면 충돌할 수 있습니다. ControlMaster 공유 연결은 세션별 종료를 위해 비활성화하고, LocalCommand는 실행하지 않습니다. 연결 종료, 탭 닫기, 로그아웃, 브라우저 연결 종료 시 해당 SSH 또는 로컬 셸 프로세스와 임시 키 파일을 정리합니다. 셸에서 `exit`로 종료할 수도 있습니다. `Ctrl+C`는 실행 중인 명령을 중단하며, 터미널 연결은 유지됩니다. 연결 기록은 메타데이터만 저장하고 터미널 출력·입력은 DB에 저장하지 않습니다. 기록은 30일 후 삭제됩니다.
+
+## 파일 드롭 업로드
+
+터미널에서 `cd`로 저장할 폴더로 이동한 뒤 파일을 해당 터미널 위에 드롭합니다. 드롭한 시점의 셸 작업 폴더를 조회하고, 여러 파일은 그 폴더로 순서대로 전송합니다. Linux는 `/proc`를, macOS는 `lsof`를 사용하므로 별도 프로그램이나 셸 설정을 설치하지 않습니다. 셸에서 다른 프로그램을 실행 중이어도 업로드 때문에 명령어를 입력하지 않습니다. 하단의 경로 입력란에 절대 경로 또는 `~/...`를 입력하면 직접 저장 위치를 지정할 수 있습니다. 사용자 지정 RemoteCommand로 시작한 터미널 등에서 자동 경로를 확인할 수 없는 경우에도 이 입력란을 사용합니다.
+
+고정 `server`는 배포 서버에 직접 저장합니다. 다른 서버는 기존 인증 방식과 ProxyJump/ProxyCommand를 사용하는 별도 SSH 연결로 파일을 스트리밍합니다. 업로드 연결에서는 포트 포워딩을 새로 열지 않습니다. 앱 서버에 원격 업로드 파일 전체를 임시 보관하거나 DB에 저장하지 않습니다. nginx는 업로드 요청을 버퍼링하지 않으며, 기본 파일 제한은 1GB입니다. 폴더 드롭은 지원하지 않고 한 번에 파일 100개까지 받습니다.
+
+원래 파일 이름을 유지하며, 같은 이름의 파일·디렉터리가 있으면 오류를 표시하고 기존 항목을 보존합니다. 대상 폴더에 권한 0600의 임시 파일로 전송한 뒤 원자적으로 등록합니다. 중단·실패 시 임시 파일을 정리합니다. 화면에서 진행률, 저장 위치, 오류를 확인하고 전송을 취소할 수 있습니다. 터미널 종료·로그아웃 시 전송과 접속권도 취소합니다. 업로드 API는 로그인한 터미널에 묶인 1회용 접속권, 출처, 파일 크기를 확인합니다.
+
+`VERIFY_JUMP_ALIAS=ibs_kakadais meteor node scripts/verify-uploads.cjs`는 실제 브라우저 파일 드롭, 로컬/Linux SSH/macOS 경유 서버의 현재 폴더, 바이너리 해시, 기존 파일 보호, 취소, 외부 config 수정 후 Sync를 검사합니다. `VERIFY_CONFIG_ALIAS`와 `VERIFY_JUMP_ALIAS`는 환경에 맞게 지정하며 경유 별칭을 생략하면 로컬과 기본 SSH 서버만 검사합니다. 임시 `.deploy/qa.json` 및 `.deploy/qa_identity`가 있으면 비밀번호와 암호가 걸린 개인 키로 업로드도 검사합니다. 검증용 임시 파일과 config는 완료 후 정리합니다.
 
 ## 복구
 

@@ -58,9 +58,10 @@ async function importServers(ownerId) {
       imported.push(alias);
     } catch (_) { skipped.push(alias); }
   }
+  const removed = await Servers.removeAsync({ ownerId, source: 'config', sshAlias: { $nin: aliases } });
   await Servers.updateAsync({ ownerId, source: 'config', sshAlias: { $nin: imported } },
     { $set: { configAvailable: false, updatedAt: new Date() } }, { multi: true });
-  return { imported: imported.length, skipped, total: aliases.length };
+  return { imported: imported.length, removed, skipped, total: aliases.length };
 }
 export function syncServers(ownerId) {
   return withConfigLock(async () => {

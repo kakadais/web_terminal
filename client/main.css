@@ -89,8 +89,26 @@ textarea { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 12px; 
 .terminal-tab .tab-close { font-size: 17px; color: #6e8299; padding: 8px 10px; }
 .terminal-content { flex: 1; position: relative; min-height: 0; display: flex; }
 .terminal-pane { display: none; position: absolute; inset: 0; padding: 16px 10px 10px 18px; overflow: hidden; }
-.terminal-pane.visible { display: block; }
+.terminal-pane.visible { display: flex; flex-direction: column; }
+.terminal-screen { flex: 1; min-height: 0; overflow: hidden; }
 .terminal-pane .xterm { height: 100%; }
+.upload-toolbar { display: flex; align-items: center; gap: 8px; flex-shrink: 0; border-top: 1px solid #243140; padding-top: 9px; margin-top: 8px; font-size: 11px; color: #8aa498; }
+.upload-toolbar input { flex: 1; padding: 5px 8px; font: 11px 'SFMono-Regular', Consolas, monospace; }
+.upload-help { color: #647b8e; font-size: 10px; }
+.file-drop-overlay { position: absolute; inset: 10px; z-index: 5; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 12px; background: #102b32e8; border: 2px dashed #64d3b0; border-radius: 10px; pointer-events: none; }
+.file-drop-overlay strong { font-size: 21px; color: #b6f5dc; }
+.file-drop-overlay span { color: #94b6bf; max-width: 90%; overflow-wrap: anywhere; }
+.upload-panel { flex-shrink: 0; max-height: 190px; overflow-y: auto; margin-top: 8px; padding: 10px 12px; background: #14212a; border: 1px solid #2d4449; border-radius: 8px; font-size: 11px; }
+.upload-heading { display: flex; gap: 10px; align-items: center; justify-content: space-between; color: #a1c9bb; }
+.upload-heading > span { overflow-wrap: anywhere; }
+.upload-heading button { flex-shrink: 0; padding: 3px 7px; font-size: 10px; }
+.upload-item { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 12px; padding-top: 9px; }
+.upload-item > span:first-child { max-width: 45%; overflow-wrap: anywhere; color: #c4d9e5; }
+.upload-item > small { color: #6c8b9b; }
+.upload-item > span:last-of-type { margin-left: auto; }
+.upload-item.done { color: #71d7b5; }
+.upload-item.error, .upload-error { color: #f0a6b3; }
+.upload-item progress { width: 100%; height: 4px; accent-color: #64d3b0; }
 .empty-state { margin: auto; text-align: center; padding: 30px; }
 .empty-state h1 { font-size: 23px; font-weight: 500; letter-spacing: -.8px; margin: 15px 0 12px; }
 .empty-state p { color: #748aa0; font-size: 13px; line-height: 1.85; margin-bottom: 26px; }
@@ -154,4 +172,6 @@ textarea { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 12px; 
   .dialog { padding: 20px; }
   .login-card { padding: 28px; }
   .status-bar { padding: 0 10px; }
+  .upload-help { display: none; }
+  .upload-item > span:first-child { max-width: 100%; }
 }
