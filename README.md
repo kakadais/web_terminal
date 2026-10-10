@@ -2,7 +2,7 @@
 
 Meteor 3.5.2 + React 기반의 로그인형 SSH 서버 관리 화면입니다. 운영 주소는 https://terminal.digix.kr 이고, nginx가 `server`의 `192.168.1.4:5160`으로 HTTP 및 WebSocket을 전달합니다.
 
-로그인하면 왼쪽에 서버 목록이 표시됩니다. 서버를 클릭하면 오른쪽에 SSH 터미널이 열리며, 여러 서버를 탭으로 사용할 수 있습니다. `Sync`는 **앱이 실행되는 서버**의 SSH config를 읽습니다. `+`로 직접 서버를 추가하고 비밀번호 또는 SSH 개인 키를 등록할 수 있습니다. 설정 메뉴에서 수정·삭제하며, 개인 키는 붙여 넣거나 파일로 선택합니다.
+로그인하면 왼쪽에 서버 목록이 표시됩니다. 최상단의 `server`는 배포 서버의 로컬 셸을 바로 열고, 다른 서버는 SSH 터미널로 연결합니다. 여러 서버를 탭으로 사용할 수 있습니다. `Sync`는 **앱이 실행되는 서버**의 SSH config를 읽습니다. `+`와 `⋯` 설정에서 실제 config 블록을 등록·편집·삭제하며, 비밀번호 또는 SSH 개인 키·키 암호도 저장할 수 있습니다.
 
 ## 환경변수
 
@@ -25,6 +25,8 @@ chmod 600 .env.local
 | `SSH_CONFIG_PATH` | 운영 서버의 SSH config. 기본 `~/.ssh/config`. |
 | `SSH_KNOWN_HOSTS_PATH` | 호스트 키 저장 위치. 기본 `~/deploy/web_terminal/shared/known_hosts`. |
 | `SSH_COMMAND` | OpenSSH 실행 파일. 기본 `/usr/bin/ssh`. |
+| `SSH_CONFIG_BACKUP_DIR` | config 변경 전 원본 백업 경로. 기본 `~/deploy/web_terminal/shared/ssh-config-backups`. |
+| `DEPLOY_SERVER_NAME` | 목록 최상단에 고정할 배포 서버 이름. 기본 `server`. |
 | `TERMINAL_MAX_SESSIONS` | 사용자별 동시 터미널 수. 기본 12. |
 | `TERMINAL_TICKET_SECONDS` | 1회용 터미널 접속권 유효 시간. 기본 30초. |
 | `TERMINAL_IDLE_MINUTES` | 입력 없이 유지할 시간. 기본 60분. |
@@ -56,7 +58,7 @@ tmux attach -t web-terminal-dev
 tmux kill-session -t web-terminal-dev
 ```
 
-`meteor npm test`는 인증 정보 암호화, SSH config Include와 기본값 해석, 입력 검증, dotenv의 안전한 전달을 검사합니다. 배포 후 `meteor npm run verify`는 Chrome으로 로그인·최초 목록·Sync·실제 SSH 명령·모바일 화면을 확인합니다. 기본 검증 대상 SSH 별칭은 `nginx`입니다. `VERIFY_CONFIG_ALIAS`로 변경하고 `VERIFY_JUMP_ALIAS`로 점프 서버 경유 검사 대상을 추가하며, Chrome 경로는 `CHROME_PATH`로 지정합니다. 결과 화면은 Git에서 제외한 `test-results/`에 저장합니다. 임시 `.deploy/qa.json` 및 `.deploy/qa_identity`가 있을 때만 별도 SSH 비밀번호·키 접속 검사도 실행합니다.
+`meteor npm test`는 인증 정보 암호화, SSH config Include와 기본값 해석, config 블록 편집·공유 별칭 삭제·심볼릭 링크 보존·문법 오류 및 동시 수정 거부, 입력 검증, dotenv의 안전한 전달을 검사합니다. 배포 후 `meteor npm run verify`는 Chrome으로 로그인·목록·Sync·고정 배포 서버의 로컬 셸·실제 SSH 명령·config 등록/수정/삭제·모바일 화면을 확인합니다. 기본 검증 대상 SSH 별칭은 `nginx`입니다. `VERIFY_CONFIG_ALIAS`로 변경하고 `VERIFY_JUMP_ALIAS`로 기존 경유 접속과 새 ProxyJump 블록 검사 대상을 추가하며, Chrome 경로는 `CHROME_PATH`로 지정합니다. 결과 화면은 Git에서 제외한 `test-results/`에 저장합니다. 검증은 임시 `__verify_*` config 블록을 추가하고 완료 후 삭제합니다. `127.0.0.1:22561`의 LocalForward로 nginx의 HTTP 포트 80도 검사하므로 이 검증 포트는 사용 중이지 않아야 합니다. 임시 `.deploy/qa.json` 및 `.deploy/qa_identity`가 있을 때만 별도 SSH 비밀번호·키 접속 검사도 실행합니다.
 
 ## 배포
 
@@ -76,6 +78,7 @@ server: ~/deploy/web_terminal/
   release/…/.runtime.env        # 해당 릴리스의 안전하게 인용한 환경변수 스냅샷
   shared/.env.local             # 운영 dotenv 원본, 권한 0600
   shared/known_hosts            # 배포 간 유지되는 SSH 호스트 키
+  shared/ssh-config-backups/    # config 수정 전 원본과 파일 경로 manifest, 권한 0700/0600
 ```
 
 작업을 tmux에서 실행하려면 `tmux new-session -s web-terminal-deploy './deploy.sh'`를 사용하고 완료 후 세션을 정리합니다. 운영 앱은 기존 서버의 PM2 startup 서비스로 유지됩니다.
@@ -92,11 +95,15 @@ curl -fsS https://terminal.digix.kr/health
 
 ## 터미널과 SSH config 동작
 
-최초 관리자 생성 후 SSH config 목록을 가져옵니다. `Host *`·패턴은 제외하고 명시된 별칭을 가져오며, `Include`와 `ProxyJump`, `IdentityFile` 등의 실제 값은 OpenSSH의 `ssh -G`로 해석합니다. 기존 config에서 `User` 뒤에 `#` 주석이 붙은 경우 실제 사용자 이름만 가져오고 SSH 실행 시 그 이름을 명시합니다. 주소 등 설정이 잘못된 별칭은 Sync 결과에 이름이 표시됩니다. Sync는 기존 수동 추가 서버와 등록된 인증 정보를 보존하고, 사라진 config 별칭은 연결할 수 없는 상태로 표시합니다. 목록 삭제는 SSH config 파일을 수정하지 않으므로 config 서버는 다음 Sync 시 다시 나타납니다.
+목록 최상단의 `server`는 앱이 배포된 머신에서 실행 계정의 로그인 셸을 바로 엽니다. SSH config와 별개로 자동 생성되며 검색·목록 스크롤에도 고정되고 삭제할 수 없습니다. 이름은 `DEPLOY_SERVER_NAME`으로 변경합니다. SSH로 등록된 같은 이름의 별칭은 별도의 원격 접속 항목입니다.
 
-config 인증은 운영 서버에 이미 있는 개인 키 또는 SSH agent를 사용합니다. 비밀번호가 필요한 서버는 해당 서버의 설정에서 비밀번호 인증으로 바꾸세요. 수동 추가 서버는 자신의 호스트·포트·SSH 사용자·비밀번호 또는 개인 키를 사용합니다. SSH 키는 SSL 인증서와 다르며, 공개 키 대신 개인 키 파일을 등록해야 합니다. 키에 암호가 있으면 키 암호도 입력합니다.
+최초 관리자 생성 후 SSH config 목록을 가져옵니다. `Host *`·패턴은 제외하고 명시된 별칭을 가져오며, `Include`와 `ProxyJump`, `ProxyCommand`, `IdentityFile` 등의 실제 값은 OpenSSH의 `ssh -G`로 해석합니다. 기존 config에서 `User` 뒤에 `#` 주석이 붙은 경우 실제 사용자 이름만 가져오고 SSH 실행 시 그 이름을 명시합니다. 접속할 때에도 최신 config를 다시 읽습니다. 주소 등 설정이 잘못된 별칭은 Sync 결과에 이름이 표시됩니다. Sync는 등록된 인증 정보를 보존하고, 외부에서 사라진 config 별칭은 연결할 수 없는 상태로 표시합니다.
 
-새 호스트 키는 known_hosts에 저장하며 변경된 호스트 키는 거부합니다. SSH config의 포트 포워딩과 공유 연결은 웹 터미널 세션에서 비활성화합니다. 연결 종료, 탭 닫기, 로그아웃, 브라우저 연결 종료 시 해당 SSH 프로세스와 임시 키 파일을 정리합니다. 원격 셸에서 `exit`로 종료할 수도 있습니다. `Ctrl+C`는 원격 실행 중인 명령을 중단하며, SSH 연결은 유지됩니다. 연결 기록은 메타데이터만 저장하고 터미널 출력·입력은 DB에 저장하지 않습니다. 기록은 30일 후 삭제됩니다.
+`+` 및 각 서버의 `⋯` 설정은 실제 `Host` 블록을 보여주는 편집기입니다. HostName·User·Port·경유 접속·포트 포워딩을 직접 편집합니다. Include 파일의 블록도 해당 실제 파일에 저장하며, 같은 별칭의 Host 블록이 여러 개면 모두 표시합니다. 공유 Host 블록은 다른 별칭도 영향을 받는다는 안내가 나옵니다. 새 블록은 루트 config의 첫 Host/Match 블록 앞에 추가합니다. 저장 전 별도 임시 config에서 OpenSSH 문법과 유효 주소를 검사하며, 파일이 편집 도중 외부에서 바뀌면 최신 내용을 다시 불러와야 합니다. 원본을 권한 0600으로 백업한 뒤 실제 대상 파일을 원자적으로 교체하고, `.ssh/config`와 Include의 심볼릭 링크는 유지합니다. 다른 블록·Match·주석은 그대로 보존합니다. 삭제는 실제 config에서도 해당 별칭을 제거하며, 공유 블록의 다른 별칭은 유지합니다. 기존 수동 등록 항목도 편집 후 저장하면 config 항목으로 전환됩니다.
+
+config 인증은 운영 서버에 이미 있는 개인 키 또는 SSH agent를 사용합니다. 비밀번호가 필요한 서버는 해당 서버의 설정에서 비밀번호 인증으로 바꾸세요. 키 인증에서는 config의 IdentityFile을 사용하거나 개인 키를 업로드할 수 있습니다. 키에 암호가 있으면 키 암호도 입력합니다. 비밀번호·업로드한 개인 키·키 암호는 config에 기록하지 않고 암호화한 DB 필드에 별도 저장합니다. SSH config 경로와 IdentityFile은 앱 서버 기준이며, 경유 서버의 별도 인증은 경유 서버에 맞는 SSH config/키를 준비해야 합니다.
+
+새 호스트 키는 known_hosts에 저장하며 변경된 호스트 키는 거부합니다. ProxyJump의 모든 경유 단계도 앱의 같은 known_hosts를 사용하도록 임시 Include config를 적용합니다. ProxyJump/ProxyCommand 및 LocalForward/RemoteForward는 SSH config를 따릅니다. 포트 포워딩의 리스닝 포트는 앱 서버에 열리고, 같은 포워딩 포트로 여러 탭을 열면 충돌할 수 있습니다. ControlMaster 공유 연결은 세션별 종료를 위해 비활성화하고, LocalCommand는 실행하지 않습니다. 연결 종료, 탭 닫기, 로그아웃, 브라우저 연결 종료 시 해당 SSH 또는 로컬 셸 프로세스와 임시 키 파일을 정리합니다. 셸에서 `exit`로 종료할 수도 있습니다. `Ctrl+C`는 실행 중인 명령을 중단하며, 터미널 연결은 유지됩니다. 연결 기록은 메타데이터만 저장하고 터미널 출력·입력은 DB에 저장하지 않습니다. 기록은 30일 후 삭제됩니다.
 
 ## 복구
 

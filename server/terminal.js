@@ -8,6 +8,9 @@ import { Servers, ConnectionHistory } from '../imports/api/collections';
 import { config } from './config';
 import { requireUser } from './servers';
 import { startSsh } from '../lib/ssh-session.cjs';
+import { startLocal } from '../lib/local-session.cjs';
+import { readAliases, resolveAlias } from '../lib/ssh-config.cjs';
+import { validateServer } from '../lib/server-input.cjs';
 
 const tickets = new Map();
 const sessions = new Map();
@@ -99,7 +102,17 @@ server.on('connection', socket => {
         const record = await Servers.findOneAsync({ _id: grant.serverId, ownerId: grant.ownerId });
         if (!record || finished || socket.readyState !== WebSocket.OPEN || connections.get(grant.connectionId) !== grant.ownerId) throw new Error('Session closed');
         if ([...sessions.values()].filter(item => item.ownerId === grant.ownerId).length >= config.maxSessions) throw new Error('Session limit exceeded');
-        const { terminal, cleanup } = startSsh(record, config, {
+        let target = record;
+        if (record.source === 'config') {
+          // Use current OpenSSH values, including changes made outside this app.
+          if (!readAliases(config.sshConfig).includes(record.sshAlias)) throw new Error('Config missing');
+          const resolved = await resolveAlias(record.sshAlias, config.sshConfig, config.sshCommand);
+          validateServer({ ...resolved, name: record.name, authType: record.authType });
+          target = { ...record, ...resolved };
+        }
+        if (finished || socket.readyState !== WebSocket.OPEN || connections.get(grant.connectionId) !== grant.ownerId) throw new Error('Session closed');
+        if ([...sessions.values()].filter(item => item.ownerId === grant.ownerId).length >= config.maxSessions) throw new Error('Session limit exceeded');
+        const { terminal, cleanup } = (record.source === 'local' ? startLocal : startSsh)(target, config, {
           cols: clamp(message.cols, 20, 400, 100), rows: clamp(message.rows, 5, 200, 30),
         });
         const id = crypto.randomUUID();

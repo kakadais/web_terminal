@@ -17,6 +17,8 @@ export const config = {
   sshConfig: path.resolve((process.env.SSH_CONFIG_PATH || '~/.ssh/config').replace(/^~(?=\/|$)/, os.homedir())),
   knownHosts: path.resolve((process.env.SSH_KNOWN_HOSTS_PATH || '~/.ssh/known_hosts').replace(/^~(?=\/|$)/, os.homedir())),
   sshCommand: process.env.SSH_COMMAND || '/usr/bin/ssh',
+  sshConfigBackup: path.resolve((process.env.SSH_CONFIG_BACKUP_DIR || '~/deploy/web_terminal/shared/ssh-config-backups').replace(/^~(?=\/|$)/, os.homedir())),
+  localServerName: process.env.DEPLOY_SERVER_NAME?.trim() || 'server',
   rootUrl: required('ROOT_URL'),
   maxSessions: Number(process.env.TERMINAL_MAX_SESSIONS || 12),
   ticketSeconds: Number(process.env.TERMINAL_TICKET_SECONDS || 30),

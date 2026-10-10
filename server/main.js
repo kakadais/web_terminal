@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Servers, ConnectionHistory } from '../imports/api/collections';
 import { config } from './config';
-import { syncServers } from './servers';
+import { syncServers, ensureLocalServer } from './servers';
 import './terminal';
 
 Accounts.config({ forbidClientAccountCreation: true, loginExpirationInDays: 1 });
@@ -44,6 +44,7 @@ Meteor.startup(async () => {
     console.log('[startup] Initial administrator created');
   }
   // Bootstrap once. Restarts and deployments do not reset an existing password.
+  await ensureLocalServer(admin._id);
   if (!(await Servers.findOneAsync({ ownerId: admin._id, source: 'config' }))) {
     try {
       const result = await syncServers(admin._id);
