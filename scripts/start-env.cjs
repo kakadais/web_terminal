@@ -1,5 +1,8 @@
 function startEnvironment(fileEnv, inheritedEnv, development) {
   const env = { ...fileEnv, ...inheritedEnv };
+  // Meteor removes some launcher variables (including BIND_IP) from the app
+  // environment. Do not let server/config reload production values afterward.
+  env.WEB_TERMINAL_ENV_LOADED = '1';
   if (development) {
     // Use Meteor's separate local MongoDB, never the production database.
     delete env.MONGO_URL;

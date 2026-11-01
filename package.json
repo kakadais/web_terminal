@@ -5,9 +5,12 @@
   "scripts": {
     "start": "node scripts/start.cjs",
     "dev": "node scripts/start.cjs --dev",
+    "build:native": "node scripts/build-native.cjs",
+    "pretest": "node scripts/build-native.cjs",
     "test": "node --test tests/*.test.cjs",
     "deploy": "bash deploy.sh",
-    "verify": "node scripts/verify-live.cjs"
+    "verify": "node scripts/verify-live.cjs",
+    "verify:terminal": "node scripts/verify-terminal.cjs"
   },
   "dependencies": {
     "@babel/runtime": "^7.28.4",
@@ -16,7 +19,6 @@
     "bcrypt": "^6.0.0",
     "dotenv": "^18.0.7",
     "meteor-node-stubs": "^1.2.30",
-    "node-pty": "^1.1.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "ws": "^8.22.0"

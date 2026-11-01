@@ -209,8 +209,7 @@ server.on('connection', socket => {
         session = { id, ...grant, socket, terminal, cleanup, target, uploads: new Set(), lastInput: Date.now(), alive: true };
         sessions.set(id, session);
         clearTimeout(authenticationTimer);
-        session.historyPromise = ConnectionHistory.insertAsync({ _id: id, ownerId: grant.ownerId, serverId: record._id,
-          serverName: record.name, status: 'open', startedAt: new Date() });
+        session.historyPromise = Promise.resolve();
         const tracker = createPidTracker(trackingToken, pid => { session.remotePid = pid; });
         terminal.onData(raw => {
           const data = tracker.push(raw);
@@ -224,6 +223,13 @@ server.on('connection', socket => {
           finish(exitCode);
           socket.close(1000, 'SSH process exited');
         });
+        await terminal.ready;
+        if (finished || socket.readyState !== WebSocket.OPEN || connections.get(grant.connectionId) !== grant.ownerId) {
+          terminal.kill();
+          return;
+        }
+        session.historyPromise = ConnectionHistory.insertAsync({ _id: id, ownerId: grant.ownerId, serverId: record._id,
+          serverName: record.name, status: 'open', startedAt: new Date() });
         send(socket, { type: 'ready', sessionId: id });
         await session.historyPromise;
         await Servers.updateAsync(record._id, { $set: { lastConnectedAt: new Date() } });

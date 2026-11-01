@@ -2,7 +2,9 @@ import os from 'node:os';
 import path from 'node:path';
 import dotenv from 'dotenv';
 
-dotenv.config({ path: process.env.ENV_FILE || path.resolve('.env.local'), quiet: true });
+if (process.env.WEB_TERMINAL_ENV_LOADED !== '1') {
+  dotenv.config({ path: process.env.ENV_FILE || path.resolve('.env.local'), quiet: true });
+}
 
 function required(name) {
   const value = process.env[name];

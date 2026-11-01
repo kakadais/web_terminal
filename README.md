@@ -42,7 +42,7 @@ MongoDB에는 `users`, `servers`, `connection_history`가 저장됩니다. 앱 �
 
 ## 개발 및 검사
 
-Meteor 3.5.2와 OpenSSH가 필요합니다. 런타임 Node 버전은 일반 `node` 대신 `meteor node --version`으로 확인합니다.
+Meteor 3.5.2, OpenSSH, Rust 1.95 이상이 필요합니다. 런타임 Node 버전은 일반 `node` 대신 `meteor node --version`으로 확인합니다.
 
 ```bash
 meteor npm ci
@@ -50,7 +50,11 @@ meteor npm test
 meteor npm run dev
 ```
 
-`dev`는 `127.0.0.1`과 Meteor의 별도 로컬 MongoDB를 사용합니다. 운영 DB에 개발 데이터를 쓰지 않습니다. `start`는 `.env.local`의 MongoDB와 운영 설정을 사용합니다. Meteor 시작 전에 환경변수를 읽어 MongoDB 연결 설정에도 적용합니다.
+`dev`는 `127.0.0.1`과 Meteor의 별도 로컬 MongoDB를 사용합니다. 운영 DB에 개발 데이터를 쓰지 않습니다. 실행 스크립트에서 환경을 읽은 경우 앱 내부에서 dotenv를 다시 로드하지 않아 운영 바인딩 주소가 개발 서버에 섞이지 않습니다. `start`는 `.env.local`의 MongoDB와 운영 설정을 사용합니다. Meteor 시작 전에 환경변수를 읽어 MongoDB 연결 설정에도 적용합니다.
+
+`start`, `dev`, `test`는 먼저 `native/terminal`의 Rust 보조 프로그램을 `Cargo.lock` 기준으로 빌드합니다. 빌드 캐시는 `.deploy/native-target`, 실행 파일은 `.deploy/native/bin/web-terminal-pty`에 두며 Git에 포함하지 않습니다. `npm run build:native`로 따로 빌드할 수도 있습니다. Cargo는 `CARGO`, `CARGO_HOME/bin`, `PATH`, `~/.cargo/bin` 순으로 찾습니다. 미리 빌드한 실행 파일을 쓰려면 `WEB_TERMINAL_PTY_PATH`로 지정합니다. 실행 전에 프로그램 종류와 프로토콜 버전을 확인합니다. 직접 `meteor run`이나 번들을 실행할 때도 이 변수에 실행 파일의 절대 경로를 전달해야 합니다. 실행 스크립트는 Meteor가 작업 디렉터리를 바꾸기 전에 이 경로를 확정합니다.
+
+Rust 보조 프로그램은 터미널마다 하나씩 실행하며 PTY 입출력·크기 변경·프로세스 종료와 로컬 cwd 조회를 담당합니다. 터미널 출력은 파이프로 원문 바이트를 전달하고 Node에서 스트리밍 UTF-8 디코딩합니다. 제어 메시지와 입력 대기열에는 크기 제한을 두고, 입력 초과 시 연결을 종료합니다. 연결 종료 시 셸/SSH와 foreground 프로세스 그룹을 종료하며 Node의 제어 파이프가 닫혀도 같은 정리를 수행합니다. 연결과 독립적으로 유지되는 세션·데몬·별도 네트워크 포트는 만들지 않습니다. PTY는 [portable-pty](https://docs.rs/portable-pty/0.9.0/portable_pty/), cwd 조회는 [sysinfo](https://docs.rs/sysinfo/0.40.1/sysinfo/)를 사용합니다. 지원 및 검증 대상은 macOS와 Linux입니다.
 
 개발 화면은 `http://localhost:5160` 또는 `http://127.0.0.1:5160`으로 접속합니다. 개발 모드의 터미널 WebSocket과 파일 업로드는 같은 프로토콜·포트의 루프백 주소를 허용합니다. 운영 모드는 `ROOT_URL`의 출처만 허용합니다.
 
@@ -66,7 +70,9 @@ tmux attach -t web-terminal-dev
 tmux kill-session -t web-terminal-dev
 ```
 
-`meteor npm test`는 인증 정보 암호화, SSH config Include와 기본값 해석, config 블록 편집·공유 별칭 삭제·심볼릭 링크 보존·문법 오류 및 동시 수정 거부, 바이너리 업로드·기존 파일 보호·중단 처리·한글 작업 경로·PID 추적, 입력 검증, dotenv의 안전한 전달을 검사합니다. 개발 모드의 출처 제한·known_hosts 설정 우선순위, XDG 환경변수와 다단계 링크를 사용하는 Include, macOS의 Meteor 가상 경로와 실제 PTY 모듈 경로도 회귀 검사합니다. 배포 후 `meteor npm run verify`는 Chrome으로 로그인·목록·Sync·고정 배포 서버의 로컬 셸·실제 SSH 명령·config 등록/수정/삭제·모바일 화면을 확인합니다. 기본 검증 대상 SSH 별칭은 `nginx`입니다. `VERIFY_CONFIG_ALIAS`로 변경하고 `VERIFY_JUMP_ALIAS`로 기존 경유 접속과 새 ProxyJump 블록 검사 대상을 추가하며, Chrome 경로는 `CHROME_PATH`로 지정합니다. 결과 화면은 Git에서 제외한 `test-results/`에 저장합니다. 검증은 임시 `__verify_*` config 블록을 추가하고 완료 후 삭제합니다. `127.0.0.1:22561`의 LocalForward로 nginx의 HTTP 포트 80과 포워딩 중 별도 SSH 업로드도 검사하므로 이 검증 포트는 사용 중이지 않아야 합니다. 임시 `.deploy/qa.json` 및 `.deploy/qa_identity`가 있을 때만 별도 SSH 비밀번호·키 접속 검사도 실행합니다.
+`meteor npm test`는 인증 정보 암호화, SSH config Include와 기본값 해석, config 블록 편집·공유 별칭 삭제·심볼릭 링크 보존·문법 오류 및 동시 수정 거부, 바이너리 업로드·기존 파일 보호·중단 처리·한글 작업 경로·PID 추적, 입력 검증, dotenv의 안전한 전달을 검사합니다. 개발 모드의 출처 제한·known_hosts 설정 우선순위, XDG 환경변수와 다단계 링크를 사용하는 Include, Meteor의 작업 디렉터리 변경, Rust PTY의 한글·대량 출력·resize·입력 제한·foreground 종료·부모 연결 단절도 회귀 검사합니다. 배포 후 `meteor npm run verify`는 Chrome으로 로그인·목록·Sync·고정 배포 서버의 로컬 셸·실제 SSH 명령·config 등록/수정/삭제·모바일 화면을 확인합니다. 기본 검증 대상 SSH 별칭은 `nginx`입니다. `VERIFY_CONFIG_ALIAS`로 변경하고 `VERIFY_JUMP_ALIAS`로 기존 경유 접속과 새 ProxyJump 블록 검사 대상을 추가하며, Chrome 경로는 `CHROME_PATH`로 지정합니다. 결과 화면은 Git에서 제외한 `test-results/`에 저장합니다. 검증은 임시 `__verify_*` config 블록을 추가하고 완료 후 삭제합니다. `127.0.0.1:22561`의 LocalForward로 nginx의 HTTP 포트 80과 포워딩 중 별도 SSH 업로드도 검사하므로 이 검증 포트는 사용 중이지 않아야 합니다. 임시 `.deploy/qa.json` 및 `.deploy/qa_identity`가 있을 때만 별도 SSH 비밀번호·키 접속 검사도 실행합니다.
+
+`VERIFY_URL=http://localhost:5160 VERIFY_JUMP_ALIAS=ibs_kakadais npm run verify:terminal`은 **같은 호스트의 개발 서버**에서 Rust PTY 사용 여부, Vim 한글 입력·저장, resize, Ctrl+C, TUI 실행 중 바이너리 업로드와 cwd, 종료 시 프로세스 정리, 일반 SSH와 선택한 ProxyJump 접속을 검사합니다. Vim과 Chrome이 필요하고 `VERIFY_CONFIG_ALIAS` 기본값은 `nginx`입니다. SSH config는 수정하지 않으며 로컬 검증용 파일은 임시 디렉터리에서 만들고 정리합니다. Rust 자체 검사는 `cargo test --locked --manifest-path native/terminal/Cargo.toml`, 정적 검사는 `cargo clippy --locked --all-targets --manifest-path native/terminal/Cargo.toml -- -D warnings`로 실행합니다.
 
 ## 배포
 
@@ -77,7 +83,7 @@ bash -n deploy.sh
 ./deploy.sh
 ```
 
-Linux x86-64용 Meteor 빌드 → SSH 업로드 → 운영 Node/npm 선택 → 의존성 및 node-pty 설치 → `current` 전환 → PM2의 `web_terminal` 프로세스 갱신 → 실제 PID·포트·릴리스·DB health 검사 → PM2 save 순으로 진행합니다. 실패 시 0이 아닌 종료 코드를 반환하고 산출물을 보존합니다. 현재 릴리스와 직전 정상 릴리스를 유지하고, 다른 앱의 프로세스나 데이터를 수정하지 않습니다. Meteor는 시작 후 cwd를 해당 릴리스의 `programs/server`로 바꾸므로 검증도 그 실제 경로를 확인합니다.
+Linux x86-64용 Meteor 빌드 → SSH 업로드 → 운영 Node/npm 선택 → 의존성 설치와 배포 호스트의 Rust 보조 프로그램 빌드·검사 → `current` 전환 → PM2의 `web_terminal` 프로세스 갱신 → 실제 PID·포트·릴리스·DB health 검사 → PM2 save 순으로 진행합니다. 배포 호스트에도 Rust 1.95 이상이 필요하며 `CARGO`, `PATH`, `CARGO_HOME/bin` 또는 `~/.cargo/bin`을 사용합니다. 실행 파일은 릴리스별 `native/bin`에 보관하고 `.runtime.env`가 절대 경로를 지정하므로 복구 시 해당 버전으로 돌아갑니다. 컴파일 캐시는 `shared/native-target`에 둡니다. 실패 시 0이 아닌 종료 코드를 반환하고 산출물을 보존합니다. 현재 릴리스와 직전 정상 릴리스를 유지하고, 다른 앱의 프로세스나 데이터를 수정하지 않습니다. Meteor는 시작 후 cwd를 해당 릴리스의 `programs/server`로 바꾸므로 검증도 그 실제 경로를 확인합니다.
 
 ```text
 server: ~/deploy/web_terminal/
@@ -115,7 +121,7 @@ config 인증은 운영 서버에 이미 있는 개인 키 또는 SSH agent를 �
 
 ## 파일 드롭 업로드
 
-터미널에서 `cd`로 저장할 폴더로 이동한 뒤 파일을 해당 터미널 위에 드롭합니다. 드롭한 시점의 셸 작업 폴더를 조회하고, 여러 파일은 그 폴더로 순서대로 전송합니다. Linux는 `/proc`를, macOS는 `lsof`를 사용하므로 별도 프로그램이나 셸 설정을 설치하지 않습니다. 셸에서 다른 프로그램을 실행 중이어도 업로드 때문에 명령어를 입력하지 않습니다. 하단의 경로 입력란에 절대 경로 또는 `~/...`를 입력하면 직접 저장 위치를 지정할 수 있습니다. 사용자 지정 RemoteCommand로 시작한 터미널 등에서 자동 경로를 확인할 수 없는 경우에도 이 입력란을 사용합니다.
+터미널에서 `cd`로 저장할 폴더로 이동한 뒤 파일을 해당 터미널 위에 드롭합니다. 드롭한 시점의 셸 작업 폴더를 조회하고, 여러 파일은 그 폴더로 순서대로 전송합니다. 로컬 프로세스는 Rust의 OS 프로세스 조회를 사용합니다. 원격 프로세스는 기존처럼 SSH를 통해 Linux의 `/proc` 또는 macOS의 `lsof`를 조회하므로 원격 Rust 프로그램이나 셸 설정을 설치하지 않습니다. 셸에서 다른 프로그램을 실행 중이어도 업로드 때문에 명령어를 입력하지 않습니다. 하단의 경로 입력란에 절대 경로 또는 `~/...`를 입력하면 직접 저장 위치를 지정할 수 있습니다. 사용자 지정 RemoteCommand로 시작한 터미널 등에서 자동 경로를 확인할 수 없는 경우에도 이 입력란을 사용합니다.
 
 고정 `server`는 배포 서버에 직접 저장합니다. 다른 서버는 기존 인증 방식과 ProxyJump/ProxyCommand를 사용하는 별도 SSH 연결로 파일을 스트리밍합니다. 업로드 연결에서는 포트 포워딩을 새로 열지 않습니다. 앱 서버에 원격 업로드 파일 전체를 임시 보관하거나 DB에 저장하지 않습니다. nginx는 업로드 요청을 버퍼링하지 않으며, 기본 파일 제한은 1GB입니다. 폴더 드롭은 지원하지 않고 한 번에 파일 100개까지 받습니다.
 

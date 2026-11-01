@@ -73,7 +73,8 @@ trap cleanup_local EXIT
 log "Building $PROJECT_NAME for $BUILD_ARCH; Node $node_version / npm $npm_version"
 # 프로젝트의 의존성 설치·테스트·추가 빌드 단계가 있다면 이 앞에서 실행한다.
 meteor npm ci --no-audit --no-fund
-meteor node --test tests/*.test.cjs
+meteor npm test
+COPYFILE_DISABLE=1 tar -czf "$build_dir/native-source.tar.gz" -C "$PROJECT_DIR/native/terminal" Cargo.toml Cargo.lock src
 meteor node scripts/runtime-env.cjs "$RUNTIME_ENV_FILE" "$build_dir/.runtime.env"
 meteor build --architecture "$BUILD_ARCH" --server-only "$build_dir/output"
 shopt -s nullglob
@@ -103,6 +104,7 @@ remote_root="$(cat "$build_dir/remote-root")"
 remote_release="$remote_root/$RELEASE_DIR_NAME/$timestamp"
 ssh "$SSH_TARGET" "mkdir -p '$remote_root/$RELEASE_DIR_NAME' && mkdir '$remote_release' && chmod 700 '$remote_release'"
 scp "$artifact_tar" "$SSH_TARGET:$remote_release/artifact.tar.gz"
+scp "$build_dir/native-source.tar.gz" "$SSH_TARGET:$remote_release/native-source.tar.gz"
 scp "$build_dir/.runtime.env" "$SSH_TARGET:$remote_release/.runtime.env"
 ssh "$SSH_TARGET" "mkdir -p '$remote_root/shared' && chmod 700 '$remote_root/shared'"
 scp "$RUNTIME_ENV_FILE" "$SSH_TARGET:$remote_release/.env.local.pending"
@@ -185,11 +187,20 @@ tar -xzf "$release_dir/artifact.tar.gz" -C "$release_dir" --strip-components=1
 [[ -f "$release_dir/main.js" && -f "$release_dir/programs/server/package.json" ]] || fail "Invalid Meteor bundle"
 chmod 600 "$release_dir/.runtime.env"
 (cd "$release_dir/programs/server" && npm install --omit=dev --no-audit --no-fund)
-# Rebuild native terminal bindings on the Linux target if Meteor copied them.
-while IFS= read -r pty_package; do
-  pty_dir="${pty_package%/package.json}"
-  (cd "$pty_dir" && npm rebuild --no-audit --no-fund)
-done < <(find "$release_dir/programs/server/npm" -type f -path "*/node-pty/package.json")
+# Build the independent PTY executable for the actual deployment host. Never
+# ship a macOS executable or load a Node ABI-specific terminal addon on Linux.
+RUST_CARGO="${CARGO:-$(command -v cargo || true)}"
+if [[ -z "$RUST_CARGO" ]]; then RUST_CARGO="${CARGO_HOME:-$HOME/.cargo}/bin/cargo"; fi
+[[ -x "$RUST_CARGO" ]] || fail "Rust 1.95+ / Cargo is required on the deployment host (CARGO or CARGO_HOME supported)"
+mkdir -p "$release_dir/native/bin"
+tar -xzf "$release_dir/native-source.tar.gz" -C "$release_dir/native"
+"$RUST_CARGO" test --locked --manifest-path "$release_dir/native/Cargo.toml" --target-dir "$deploy_root/shared/native-target"
+"$RUST_CARGO" build --release --locked --manifest-path "$release_dir/native/Cargo.toml" --target-dir "$deploy_root/shared/native-target"
+install -m 755 "$deploy_root/shared/native-target/release/web-terminal-pty" "$release_dir/native/bin/web-terminal-pty"
+"$release_dir/native/bin/web-terminal-pty" --version
+"$release_dir/native/bin/web-terminal-pty" cwd "$$" >/dev/null
+printf '\nexport WEB_TERMINAL_PTY_PATH=%q\n' "$release_dir/native/bin/web-terminal-pty" >> "$release_dir/.runtime.env"
+rm -f "$release_dir/native-source.tar.gz"
 # Preserve the authoritative dotenv file outside release rotation.
 ln -sfn "$deploy_root/shared/.env.local" "$release_dir/.env.local"
 printf '%s\n' "$node_version" > "$release_dir/.runtime-node-version"

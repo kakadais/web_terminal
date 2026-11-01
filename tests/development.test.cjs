@@ -30,6 +30,7 @@ test('dev isolates production DB and known_hosts while preserving the SSH config
   assert.equal(env.MONGO_OPLOG_URL, undefined);
   assert.equal(env.ROOT_URL, 'http://127.0.0.1:5169');
   assert.equal(env.BIND_IP, '127.0.0.1');
+  assert.equal(env.WEB_TERMINAL_ENV_LOADED, '1');
   assert.equal(env.HTTP_FORWARDED_COUNT, '0');
   assert.equal(env.SSH_KNOWN_HOSTS_PATH, '');
   assert.equal(env.SSH_CONFIG_PATH, fileEnv.SSH_CONFIG_PATH);
