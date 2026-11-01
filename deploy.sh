@@ -191,6 +191,11 @@ chmod 600 "$release_dir/.runtime.env"
 # ship a macOS executable or load a Node ABI-specific terminal addon on Linux.
 RUST_CARGO="${CARGO:-$(command -v cargo || true)}"
 if [[ -z "$RUST_CARGO" ]]; then RUST_CARGO="${CARGO_HOME:-$HOME/.cargo}/bin/cargo"; fi
+if [[ ! -x "$RUST_CARGO" && -x "$deploy_root/shared/rust/cargo/bin/cargo" ]]; then
+  export CARGO_HOME="$deploy_root/shared/rust/cargo"
+  export RUSTUP_HOME="$deploy_root/shared/rust/rustup"
+  RUST_CARGO="$CARGO_HOME/bin/cargo"
+fi
 [[ -x "$RUST_CARGO" ]] || fail "Rust 1.95+ / Cargo is required on the deployment host (CARGO or CARGO_HOME supported)"
 mkdir -p "$release_dir/native/bin"
 tar -xzf "$release_dir/native-source.tar.gz" -C "$release_dir/native"

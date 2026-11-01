@@ -7,3 +7,4 @@ ops/
 deploy.sh
 README.md
 AGENTS.md
+vendor/

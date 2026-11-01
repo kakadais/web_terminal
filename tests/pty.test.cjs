@@ -65,6 +65,15 @@ test('Rust PTY streams large output completely without JSON framing or truncatio
   assert.equal(item.output(), 'x'.repeat(1024 * 1024) + 'END');
 });
 
+test('a paused PTY can be killed and drains its pipe before close', { timeout: 10000 }, async t => {
+  const item = terminal(t, process.execPath, ['-e', "setInterval(() => process.stdout.write('x'.repeat(65536)), 10)"]);
+  await item.pty.ready;
+  item.pty.pause();
+  await new Promise(resolve => setTimeout(resolve, 100));
+  item.pty.kill(); await item.closed;
+  assert.ok(gone(item.pty.helperPid)); assert.ok(gone(item.pty.pid));
+});
+
 test('PTY retains custom home, XDG, PATH and SSH agent environment without app credentials', { timeout: 10000 }, async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'terminal custom 한글 '));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Meteor } from 'meteor/meteor';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { TerminalTransfer } from './terminal-transfer.mjs';
 
 const call = (name, ...args) => Meteor.callAsync(name, ...args);
 const errorMessage = error => error?.reason || error?.message || '파일 전송에 실패했습니다.';
@@ -17,17 +18,37 @@ export default function TerminalPane({ record, visible, attempt, onStatus }) {
   const [lastDirectory, setLastDirectory] = useState('');
   const [jobs, setJobs] = useState([]);
   const [notice, setNotice] = useState('');
+  const [transfer, setTransfer] = useState(null);
+  const uploadPicker = useRef(null);
   const patchJob = (id, fields) => setJobs(previous => previous.map(job => job.id === id ? { ...job, ...fields } : job));
 
   useEffect(() => {
     const state = { sessionId: null, disposed: false, xhr: null, processing: false, queue: [], generation: 0, version: connection.current.version + 1 };
-    connection.current = state; setConnected(false); setJobs([]); setNotice('');
+    connection.current = state; setConnected(false); setJobs([]); setNotice(''); setTransfer(null);
     const terminal = new Terminal({ cursorBlink: true, fontSize: 14, fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
       scrollback: 10000, theme: { background: '#0b1018', foreground: '#d7e1ec', cursor: '#64d3b0', selectionBackground: '#294858' } });
     const fit = new FitAddon(); terminal.loadAddon(fit); terminal.open(container.current);
     let socket; let finished = false;
+    let outgoing = Promise.resolve();
+    const sendInput = data => {
+      const send = async () => {
+        for (let offset = 0; offset < data.length;) {
+          while (socket?.readyState === WebSocket.OPEN && socket.bufferedAmount > 64 * 1024) await new Promise(resolve => setTimeout(resolve, 10));
+          if (state.disposed || socket?.readyState !== WebSocket.OPEN) throw new Error('터미널 연결이 종료되었습니다.');
+          let end = Math.min(offset + 8192, data.length);
+          if (end < data.length && /[\uD800-\uDBFF]/.test(data[end - 1])) end--;
+          socket.send(JSON.stringify({ type: 'input', data: data.slice(offset, end) })); offset = end;
+        }
+      };
+      outgoing = outgoing.catch(() => {}).then(send); return outgoing;
+    };
+    const transfers = new TerminalTransfer({ send: sendInput,
+      write: data => new Promise(resolve => terminal.write(data, resolve)),
+      update: fields => { if (!state.disposed) setTransfer(previous => ({ ...previous, ...fields })); } });
+    state.transfers = transfers;
     const status = value => { if (!state.disposed) onStatus(record._id, value); };
-    const stopUploads = () => { state.sessionId = null; state.generation++; state.xhr?.abort(); state.queue.length = 0;
+    const stopUploads = () => { transfers.dispose(); state.sessionId = null; state.generation++; state.xhr?.abort(); state.queue.length = 0;
+      if (!state.disposed) setTransfer(previous => previous && !['done', 'error'].includes(previous.phase) ? { ...previous, phase: 'error', error: '터미널 연결이 종료되었습니다.' } : previous);
       if (!state.disposed) { setConnected(false); setJobs(previous => previous.map(job => ['queued', 'preparing', 'sending'].includes(job.status) ? { ...job, status: 'error', message: '터미널 연결이 종료되었습니다.' } : job)); } };
     const resize = () => {
       if (!container.current?.clientWidth || !container.current?.clientHeight) return;
@@ -35,17 +56,22 @@ export default function TerminalPane({ record, visible, attempt, onStatus }) {
       if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows }));
     };
     const observer = new ResizeObserver(resize); observer.observe(container.current);
-    const input = terminal.onData(data => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', data })); });
+    const input = terminal.onData(data => { if (socket?.readyState === WebSocket.OPEN) Promise.resolve(transfers.input(data)).catch(() => {}); });
     terminal.writeln(`\x1b[38;2;100;211;176mConnecting to ${record.name}…\x1b[0m`);
     status('connecting'); resize();
     call('terminal.open', record._id).then(grant => {
       if (state.disposed) return;
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       socket = new WebSocket(`${protocol}//${location.host}${grant.path}`);
-      socket.onopen = () => socket.send(JSON.stringify({ type: 'auth', ticket: grant.ticket, cols: terminal.cols, rows: terminal.rows }));
+      socket.onopen = () => socket.send(JSON.stringify({ type: 'auth', ticket: grant.ticket, cols: terminal.cols, rows: terminal.rows, outputAck: true }));
+      let output = Promise.resolve();
       socket.onmessage = event => {
         const message = JSON.parse(event.data);
-        if (message.type === 'output') terminal.write(message.data);
+        if (message.type === 'output') {
+          output = output.then(() => transfers.output(message.data)).then(() => {
+            if (message.offset && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'output-ack', offset: message.offset }));
+          }).catch(() => transfers.cancel());
+        }
         else if (message.type === 'ready') { state.sessionId = message.sessionId; setConnected(true); status('connected'); resize(); terminal.focus(); }
         else if (message.type === 'exit') {
           finished = true; stopUploads(); status('closed'); terminal.writeln(`\r\n\x1b[90m터미널 종료 (exit ${message.exitCode})\x1b[0m`);
@@ -130,7 +156,18 @@ export default function TerminalPane({ record, visible, attempt, onStatus }) {
     onDragOver={event => { if (isFileDrag(event)) { event.preventDefault(); event.dataTransfer.dropEffect = connected ? 'copy' : 'none'; } }}
     onDragLeave={event => { if (isFileDrag(event) && --dragDepth.current <= 0) { dragDepth.current = 0; setDragging(false); } }} onDrop={drop}>
     <div className="terminal-screen" ref={container} />
-    <div className="upload-toolbar"><span>파일 드롭 →</span><input aria-label="파일 저장 경로" value={directory} onChange={event => setDirectory(event.target.value)} placeholder="자동: 드롭 시 현재 작업 폴더" disabled={!connected} /><span className="upload-help">기존 파일 유지</span></div>
+    <div className="upload-toolbar"><span>파일 드롭 →</span><input aria-label="파일 저장 경로" value={directory} onChange={event => setDirectory(event.target.value)} placeholder="자동: 드롭 시 현재 작업 폴더" disabled={!connected} /><span className="upload-help">trz 업로드 · tsz 파일 다운로드</span></div>
+    <input ref={uploadPicker} type="file" multiple hidden aria-label="trz 업로드 파일" {...(transfer?.directory ? { webkitdirectory: '' } : {})}
+      onChange={event => { connection.current.transfers?.choose([...event.target.files]); event.target.value = ''; }} onCancel={() => connection.current.transfers?.cancel()} />
+    {transfer && <div className="upload-panel trzsz-panel" role="status" aria-label="trzsz 파일 전송">
+      <div className="upload-heading"><span>{transfer.name || (transfer.phase === 'download' ? 'tsz · 브라우저 다운로드' : 'trzsz 파일 전송')}</span>
+        {['done', 'error'].includes(transfer.phase) ? <button onClick={() => setTransfer(null)}>닫기</button> : <button onClick={() => connection.current.transfers?.cancel()}>취소</button>}</div>
+      {transfer.phase === 'download' && <><p>전송받은 파일을 브라우저의 다운로드 폴더에 저장합니다.</p><button onClick={() => connection.current.transfers?.choose(true)}>파일 받기</button></>}
+      {transfer.phase === 'upload' && <button onClick={() => uploadPicker.current?.click()}>{transfer.directory ? '업로드할 폴더 선택' : '업로드할 파일 선택'}</button>}
+      {transfer.phase === 'sending' && <><span>{transfer.progress || 0}% · {sizeLabel(transfer.size || 0)}</span><progress max="100" value={transfer.progress || 0} /></>}
+      {transfer.phase === 'done' && <span>{transfer.direction === 'download' ? '전송 완료 · 브라우저 다운로드 목록에서 확인하세요.' : '파일 업로드를 완료했습니다.'}</span>}
+      {transfer.phase === 'error' && <p className="upload-error">{transfer.error}</p>}
+    </div>}
     {dragging && <div className="file-drop-overlay"><strong>{connected ? `${record.name}에 파일 저장` : '터미널을 먼저 연결하세요'}</strong><span>{directory || '현재 작업 폴더로 업로드합니다.'}</span></div>}
     {(jobs.length > 0 || notice) && <div className="upload-panel" role="status" aria-label="파일 전송 상태">
       <div className="upload-heading"><span>{lastDirectory || '파일 업로드'}</span>{hasActive ? <button onClick={cancel}>전송 취소</button> : <button onClick={() => { setJobs([]); setNotice(''); }}>닫기</button>}</div>

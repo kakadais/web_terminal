@@ -111,6 +111,12 @@ Meteor.methods({
 });
 Accounts.onLogout(({ connection }) => { if (connection) closeConnection(connection.id); });
 
+// A stale/unsupported service worker must never turn the SPA fallback into a file.
+WebApp.rawHandlers.use('/terminal/browser-download', (_request, response) => {
+  response.writeHead(410, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+  response.end('다운로드가 만료되었습니다. 페이지를 새로고침한 뒤 tsz를 다시 실행해 주세요.');
+});
+
 WebApp.rawHandlers.use('/terminal/upload', async (request, response) => {
   const reply = (status, body) => {
     if (response.destroyed || response.writableEnded) return;
@@ -206,7 +212,8 @@ server.on('connection', socket => {
           trackingToken,
         });
         const id = crypto.randomUUID();
-        session = { id, ...grant, socket, terminal, cleanup, target, uploads: new Set(), lastInput: Date.now(), alive: true };
+        session = { id, ...grant, socket, terminal, cleanup, target, uploads: new Set(), lastInput: Date.now(), alive: true,
+          outputAck: message.outputAck === true, outputSent: 0, outputReceived: 0 };
         sessions.set(id, session);
         clearTimeout(authenticationTimer);
         session.historyPromise = Promise.resolve();
@@ -215,7 +222,9 @@ server.on('connection', socket => {
           const data = tracker.push(raw);
           if (!data) return;
           if (socket.bufferedAmount > 2 * 1024 * 1024) { socket.close(1009, 'Output overflow'); return; }
-          send(socket, { type: 'output', data });
+          session.outputSent += data.length;
+          send(socket, { type: 'output', data, offset: session.outputSent });
+          if (session.outputAck && session.outputSent - session.outputReceived >= 256 * 1024) terminal.pause();
         });
         terminal.onExit(({ exitCode }) => {
           const remaining = tracker.flush(); if (remaining) send(socket, { type: 'output', data: remaining });
@@ -238,6 +247,10 @@ server.on('connection', socket => {
       if (message.type === 'input' && typeof message.data === 'string' && message.data.length <= 32 * 1024) {
         session.lastInput = Date.now();
         session.terminal.write(message.data);
+      } else if (message.type === 'output-ack' && session.outputAck) {
+        if (!Number.isSafeInteger(message.offset) || message.offset < session.outputReceived || message.offset > session.outputSent) throw new Error('Invalid output acknowledgement');
+        session.outputReceived = message.offset;
+        if (session.outputSent - session.outputReceived < 128 * 1024) session.terminal.resume();
       } else if (message.type === 'resize') {
         session.terminal.resize(clamp(message.cols, 20, 400, 100), clamp(message.rows, 5, 200, 30));
       } else if (message.type === 'close') socket.close(1000, 'User disconnected');
