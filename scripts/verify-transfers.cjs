@@ -41,7 +41,8 @@ async function wait(predicate, label, timeout = 30000) {
   const prompt = async () => {
     const nonce = crypto.randomBytes(8).toString('hex');
     await input(`printf '\\nREADY_%s\\n' ${nonce}`);
-    await wait(() => output.includes(`READY_${nonce}`), 'shell recovered');
+    await wait(() => output.includes(`READY_${nonce}`)
+      && output.lastIndexOf('\x1b[?2004h') > output.lastIndexOf(`READY_${nonce}`), 'shell recovered');
   };
   const panel = page.getByRole('status', { name: 'trzsz 파일 전송', exact: true });
   try {
@@ -68,7 +69,7 @@ async function wait(predicate, label, timeout = 30000) {
           assert.equal(hash(fs.readFileSync(saved)), fixture.files[download.suggestedFilename()]);
         }
         await panel.getByText(/전송 완료/).waitFor({ timeout: 60000 });
-        await wait(() => output.includes('브라우저로 파일을 전송했습니다.'), 'tsz restores the remote terminal');
+        await wait(() => output.includes('\x1b[?2004h'), 'tsz restores the remote prompt');
         await prompt(); console.log('PASS browser download', names.join(', '), flags);
       } finally { page.off('download', listener); }
     };
@@ -82,7 +83,7 @@ async function wait(predicate, label, timeout = 30000) {
       { name: 'uploaded-empty.bin', mimeType: 'application/octet-stream', buffer: Buffer.alloc(0) },
     ]);
     await panel.getByText(/파일 업로드를 완료/).waitFor({ timeout: 60000 });
-    await wait(() => output.includes('파일 업로드를 완료했습니다.'), 'trz restores the remote terminal'); await prompt();
+    await wait(() => output.includes('\x1b[?2004h'), 'trz restores the remote prompt'); await prompt();
     const uploaded = JSON.parse(remote(`import json,hashlib,os\np=${JSON.stringify(fixture.path)}\nprint(json.dumps({n:hashlib.sha256(open(os.path.join(p,n),'rb').read()).hexdigest() for n in ['uploaded 한글.bin','uploaded-empty.bin']}))\n`));
     assert.equal(uploaded['uploaded 한글.bin'], hash(upload)); assert.equal(uploaded['uploaded-empty.bin'], hash(Buffer.alloc(0)));
     console.log('PASS multi-file browser upload with Unicode and empty file');
@@ -92,19 +93,21 @@ async function wait(predicate, label, timeout = 30000) {
     output = ''; await input('trz -d'); await panel.getByRole('button', { name: '업로드할 폴더 선택' }).waitFor();
     await page.locator('input[aria-label="trz 업로드 파일"]').setInputFiles(folder);
     await panel.getByText(/파일 업로드를 완료/).waitFor({ timeout: 60000 });
-    await wait(() => output.includes('파일 업로드를 완료했습니다.'), 'folder upload restores the remote terminal'); await prompt();
+    await wait(() => output.includes('\x1b[?2004h'), 'folder upload restores the remote prompt'); await prompt();
     assert.equal(remote(`from pathlib import Path\nprint(Path(${JSON.stringify(fixture.path + '/folder-upload/nested/한글.txt')}).read_text(),end='')\n`), 'nested folder upload');
     console.log('PASS nested folder upload');
 
-    await input('trz'); await panel.getByRole('button', { name: '업로드할 파일 선택' }).waitFor();
-    await panel.getByRole('button', { name: '취소', exact: true }).click(); await delay(1000); await prompt();
+    output = ''; await input('trz'); await panel.getByRole('button', { name: '업로드할 파일 선택' }).waitFor();
+    await panel.getByRole('button', { name: '취소', exact: true }).click();
+    await wait(() => output.includes('\x1b[?2004h'), 'cancel restores the remote prompt'); await prompt();
     console.log('PASS cancel before file selection and shell reuse');
 
-    await input('tsz large.bin');
+    output = ''; await input('tsz large.bin');
     const cancelled = page.waitForEvent('download');
     await panel.getByRole('button', { name: '파일 받기', exact: true }).click();
     await (await cancelled).cancel();
-    await panel.locator('.upload-error').waitFor({ timeout: 30000 }); await delay(1000); await prompt();
+    await panel.locator('.upload-error').waitFor({ timeout: 30000 });
+    await wait(() => output.includes('\x1b[?2004h'), 'download cancellation restores the prompt'); await prompt();
     console.log('PASS browser download cancellation and shell reuse');
     await page.screenshot({ path: path.resolve(__dirname, '../.deploy/transfer-verification.png') });
     assert.deepEqual(errors, []); console.log(JSON.stringify({ target, outputBytes, pageErrors: errors.length, result: 'PASS' }));
