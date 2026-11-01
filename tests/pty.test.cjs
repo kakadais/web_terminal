@@ -125,6 +125,34 @@ test('an input flood closes the backend instead of growing its queue indefinitel
   assert.ok(gone(item.pty.pid));
 });
 
+test('a burst of small input frames waits for a slow reader without closing or reordering', { timeout: 10000 }, async t => {
+  const expected = '0123456789abcdef'.repeat(1024);
+  const script = `process.stdin.setRawMode(true); process.stdin.pause(); console.log('RAW_READY'); let input=''; setTimeout(() => { process.stdin.on('data', data => { input += data.toString(); if(input.length >= ${expected.length}) { console.log('DIGEST:' + require('crypto').createHash('sha256').update(input).digest('hex')); process.exit(0); } }); process.stdin.resume(); }, 300);`;
+  const item = terminal(t, process.execPath, ['-e', script]);
+  await item.pty.ready;
+  await until(() => item.output().includes('RAW_READY'), 'slow raw reader ready');
+  for (const character of expected) item.pty.write(character);
+  assert.equal((await item.closed).exitCode, 0);
+  assert.ok(item.output().includes('DIGEST:' + require('node:crypto').createHash('sha256').update(expected).digest('hex')));
+});
+
+test('loss of the control pipe interrupts a blocked input queue', { timeout: 10000 }, async t => {
+  const helper = spawnProcess(nativePath(), [], { env: terminalEnv(), stdio: ['pipe', 'pipe', 'pipe'] });
+  t.after(() => helper.kill('SIGKILL'));
+  let control = ''; let output = '';
+  helper.stderr.on('data', data => { control += data; }); helper.stdout.on('data', data => { output += data; });
+  helper.stdin.on('error', () => {});
+  const closed = new Promise(resolve => helper.once('close', resolve));
+  helper.stdin.write(JSON.stringify({ type: 'spawn', protocol: 1, file: process.execPath,
+    args: ['-e', "process.stdin.setRawMode(true); process.stdin.pause(); console.log('RAW_READY'); setInterval(() => {}, 1000)"], cwd: os.tmpdir(), cols: 80, rows: 24 }) + '\n');
+  await until(() => output.includes('RAW_READY'), 'blocked reader ready');
+  const { pid } = JSON.parse(control.split('\n').find(line => line.includes('"ready"')));
+  for (let i = 0; i < 20; i++) helper.stdin.write(JSON.stringify({ type: 'write', data: 'x'.repeat(32768) }) + '\n');
+  await new Promise(resolve => setTimeout(resolve, 100));
+  helper.stdin.destroy(); await closed;
+  assert.ok(gone(pid));
+});
+
 test('loss of the parent control pipe terminates the owned terminal', { timeout: 10000 }, async t => {
   const helper = spawnProcess(nativePath(), [], { env: terminalEnv(), stdio: ['pipe', 'pipe', 'pipe'] });
   t.after(() => helper.kill('SIGKILL'));

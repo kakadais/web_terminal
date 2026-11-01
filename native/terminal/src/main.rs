@@ -3,6 +3,7 @@
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use serde::Deserialize;
 use serde_json::json;
+use std::collections::VecDeque;
 use std::io::{self, BufRead, Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
@@ -13,6 +14,7 @@ use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 const PROTOCOL: u32 = 1;
 const MAX_FRAME: u64 = 256 * 1024;
 const MAX_INPUT: usize = 128 * 1024;
+const MAX_PENDING_INPUT: usize = 1024 * 1024;
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
@@ -193,6 +195,8 @@ fn serve() -> Result<(), &'static str> {
         .err()
         .map(|_| "parent-disconnected");
     let mut exit_code = None;
+    let mut pending_writes = VecDeque::<String>::new();
+    let mut pending_bytes = 0;
     while failure.is_none() && !stopping.load(Ordering::SeqCst) {
         match child.try_wait() {
             Ok(Some(exit)) => {
@@ -205,9 +209,37 @@ fn serve() -> Result<(), &'static str> {
             }
             Ok(None) => {}
         }
+        if let Some(data) = pending_writes.pop_front() {
+            let length = data.len();
+            match writes_tx.try_send(data) {
+                Ok(()) => pending_bytes -= length,
+                Err(mpsc::TrySendError::Full(data)) => {
+                    pending_writes.push_front(data);
+                }
+                Err(mpsc::TrySendError::Disconnected(_)) => {
+                    failure = Some("pty-write");
+                    break;
+                }
+            }
+        }
         let result = match commands_rx.recv_timeout(Duration::from_millis(10)) {
             Ok(Ok(Command::Write { data })) if data.len() <= MAX_INPUT => {
-                writes_tx.try_send(data).map_err(|_| "input-overflow")
+                // Coalesce keystrokes and bound bytes, not the number of frames.
+                // Keep consuming controls so resize, EOF and kill still work
+                // while the PTY writer is blocked on a slow/non-reading child.
+                if pending_bytes + data.len() > MAX_PENDING_INPUT {
+                    Err("input-overflow")
+                } else {
+                    pending_bytes += data.len();
+                    if let Some(last) = pending_writes.back_mut()
+                        && last.len() + data.len() <= MAX_INPUT
+                    {
+                        last.push_str(&data);
+                    } else {
+                        pending_writes.push_back(data);
+                    }
+                    Ok(())
+                }
             }
             Ok(Ok(Command::Resize { cols, rows })) => {
                 size(cols, rows).and_then(|size| pair.master.resize(size).map_err(|_| "pty-resize"))

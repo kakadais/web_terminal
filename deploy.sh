@@ -190,17 +190,17 @@ chmod 600 "$release_dir/.runtime.env"
 # Build the independent PTY executable for the actual deployment host. Never
 # ship a macOS executable or load a Node ABI-specific terminal addon on Linux.
 RUST_CARGO="${CARGO:-$(command -v cargo || true)}"
+RUST_BUILD_ENV=()
 if [[ -z "$RUST_CARGO" ]]; then RUST_CARGO="${CARGO_HOME:-$HOME/.cargo}/bin/cargo"; fi
 if [[ ! -x "$RUST_CARGO" && -x "$deploy_root/shared/rust/cargo/bin/cargo" ]]; then
-  export CARGO_HOME="$deploy_root/shared/rust/cargo"
-  export RUSTUP_HOME="$deploy_root/shared/rust/rustup"
-  RUST_CARGO="$CARGO_HOME/bin/cargo"
+  RUST_BUILD_ENV=("CARGO_HOME=$deploy_root/shared/rust/cargo" "RUSTUP_HOME=$deploy_root/shared/rust/rustup")
+  RUST_CARGO="$deploy_root/shared/rust/cargo/bin/cargo"
 fi
 [[ -x "$RUST_CARGO" ]] || fail "Rust 1.95+ / Cargo is required on the deployment host (CARGO or CARGO_HOME supported)"
 mkdir -p "$release_dir/native/bin"
 tar -xzf "$release_dir/native-source.tar.gz" -C "$release_dir/native"
-"$RUST_CARGO" test --locked --manifest-path "$release_dir/native/Cargo.toml" --target-dir "$deploy_root/shared/native-target"
-"$RUST_CARGO" build --release --locked --manifest-path "$release_dir/native/Cargo.toml" --target-dir "$deploy_root/shared/native-target"
+env "${RUST_BUILD_ENV[@]}" "$RUST_CARGO" test --locked --manifest-path "$release_dir/native/Cargo.toml" --target-dir "$deploy_root/shared/native-target"
+env "${RUST_BUILD_ENV[@]}" "$RUST_CARGO" build --release --locked --manifest-path "$release_dir/native/Cargo.toml" --target-dir "$deploy_root/shared/native-target"
 install -m 755 "$deploy_root/shared/native-target/release/web-terminal-pty" "$release_dir/native/bin/web-terminal-pty"
 "$release_dir/native/bin/web-terminal-pty" --version
 "$release_dir/native/bin/web-terminal-pty" cwd "$$" >/dev/null

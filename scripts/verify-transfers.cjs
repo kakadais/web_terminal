@@ -58,6 +58,7 @@ async function wait(predicate, label, timeout = 30000) {
     const downloadFiles = async (names, flags = '') => {
       const downloads = []; const listener = item => downloads.push(item); page.on('download', listener);
       try {
+        output = '';
         await input(`tsz ${flags} ${names.map(quoteShell).join(' ')}`);
         await panel.getByRole('button', { name: '파일 받기', exact: true }).click({ timeout: 20000 });
         await wait(() => downloads.length === names.length, 'browser download started', 60000);
@@ -67,28 +68,31 @@ async function wait(predicate, label, timeout = 30000) {
           assert.equal(hash(fs.readFileSync(saved)), fixture.files[download.suggestedFilename()]);
         }
         await panel.getByText(/전송 완료/).waitFor({ timeout: 60000 });
-        await delay(1000); await prompt(); console.log('PASS browser download', names.join(', '), flags);
+        await wait(() => output.includes('브라우저로 파일을 전송했습니다.'), 'tsz restores the remote terminal');
+        await prompt(); console.log('PASS browser download', names.join(', '), flags);
       } finally { page.off('download', listener); }
     };
     await downloadFiles(['large.bin']);
     await downloadFiles(['한글 공백.bin', 'empty.bin'], '-b');
 
     const upload = crypto.randomBytes(2 * 1024 * 1024 + 1);
-    await input('trz'); await panel.getByRole('button', { name: '업로드할 파일 선택' }).waitFor();
+    output = ''; await input('trz'); await panel.getByRole('button', { name: '업로드할 파일 선택' }).waitFor();
     await page.locator('input[aria-label="trz 업로드 파일"]').setInputFiles([
       { name: 'uploaded 한글.bin', mimeType: 'application/octet-stream', buffer: upload },
       { name: 'uploaded-empty.bin', mimeType: 'application/octet-stream', buffer: Buffer.alloc(0) },
     ]);
-    await panel.getByText(/파일 업로드를 완료/).waitFor({ timeout: 60000 }); await delay(1000); await prompt();
+    await panel.getByText(/파일 업로드를 완료/).waitFor({ timeout: 60000 });
+    await wait(() => output.includes('파일 업로드를 완료했습니다.'), 'trz restores the remote terminal'); await prompt();
     const uploaded = JSON.parse(remote(`import json,hashlib,os\np=${JSON.stringify(fixture.path)}\nprint(json.dumps({n:hashlib.sha256(open(os.path.join(p,n),'rb').read()).hexdigest() for n in ['uploaded 한글.bin','uploaded-empty.bin']}))\n`));
     assert.equal(uploaded['uploaded 한글.bin'], hash(upload)); assert.equal(uploaded['uploaded-empty.bin'], hash(Buffer.alloc(0)));
     console.log('PASS multi-file browser upload with Unicode and empty file');
 
     const folder = path.join(temporary, 'folder-upload'); fs.mkdirSync(path.join(folder, 'nested'), { recursive: true });
     fs.writeFileSync(path.join(folder, 'nested', '한글.txt'), 'nested folder upload');
-    await input('trz -d'); await panel.getByRole('button', { name: '업로드할 폴더 선택' }).waitFor();
+    output = ''; await input('trz -d'); await panel.getByRole('button', { name: '업로드할 폴더 선택' }).waitFor();
     await page.locator('input[aria-label="trz 업로드 파일"]').setInputFiles(folder);
-    await panel.getByText(/파일 업로드를 완료/).waitFor({ timeout: 60000 }); await delay(1000); await prompt();
+    await panel.getByText(/파일 업로드를 완료/).waitFor({ timeout: 60000 });
+    await wait(() => output.includes('파일 업로드를 완료했습니다.'), 'folder upload restores the remote terminal'); await prompt();
     assert.equal(remote(`from pathlib import Path\nprint(Path(${JSON.stringify(fixture.path + '/folder-upload/nested/한글.txt')}).read_text(),end='')\n`), 'nested folder upload');
     console.log('PASS nested folder upload');
 
@@ -107,6 +111,8 @@ async function wait(predicate, label, timeout = 30000) {
   } catch (error) {
     console.error('Transfer UI:', await panel.innerText().catch(() => 'none'));
     console.error('Page errors:', errors);
+    fs.writeFileSync(path.resolve(__dirname, '../.deploy/transfer-verification-output.txt'), output.slice(-6000), { mode: 0o600 });
+    await page.screenshot({ path: path.resolve(__dirname, '../.deploy/transfer-verification-failure.png') }).catch(() => {});
     throw error;
   } finally {
     await browser.close(); fs.rmSync(temporary, { recursive: true, force: true });

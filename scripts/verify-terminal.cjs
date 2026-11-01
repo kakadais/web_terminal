@@ -106,7 +106,9 @@ async function main() {
     assert.equal(await page.locator('.terminal-pane.visible .upload-heading > span').innerText(), fs.realpathSync(directory));
     assert.deepEqual(fs.readFileSync(path.join(directory, '한글 upload.bin')), bytes);
     await page.locator('.terminal-pane.visible .xterm-helper-textarea').focus();
+    const beforeVimExit = active.output.length;
     await page.keyboard.press('Escape'); await input(':wq');
+    await wait(() => active.output.slice(beforeVimExit).includes('\x1b[?1049l'), 'Vim exits alternate screen');
     await command('true');
     assert.equal(fs.readFileSync(path.join(directory, 'tui.txt'), 'utf8'), '한글 Rust TUI\nsecond line\n');
     const size = await command('stty size');
@@ -129,6 +131,10 @@ async function main() {
       console.log(`Browser SSH command passed: ${alias}`);
     }
     assert.deepEqual(errors, []);
+  } catch (error) {
+    fs.writeFileSync(path.join(root, '.deploy/terminal-verification-output.txt'), active?.output.slice(-6000) || '', { mode: 0o600 });
+    await page.screenshot({ path: path.join(root, '.deploy/terminal-verification-failure.png') }).catch(() => {});
+    throw error;
   } finally {
     await browser.close();
     for (const pid of localPids) await wait(() => gone(pid), 'final local terminal cleanup');
