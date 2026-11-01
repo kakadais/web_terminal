@@ -23,7 +23,7 @@ chmod 600 .env.local
 | `ADMIN_USERNAME`, `ADMIN_PASSWORD` | 최초 관리자 생성 시 사용. 기존 계정의 비밀번호를 재설정하지 않음. |
 | `CREDENTIAL_ENCRYPTION_KEY` | AES-256-GCM 키. `openssl rand -hex 32`로 생성하고 배포 간 유지. |
 | `SSH_CONFIG_PATH` | 운영 서버의 SSH config. 기본 `~/.ssh/config`. |
-| `SSH_KNOWN_HOSTS_PATH` | 호스트 키 저장 위치. 기본 `~/deploy/web_terminal/shared/known_hosts`. |
+| `SSH_KNOWN_HOSTS_PATH` | 선택. 명시하면 모든 SSH/ProxyJump 단계의 호스트 키 저장 위치를 재정의. 비워 두면 SSH config의 `UserKnownHostsFile` 및 OpenSSH 기본 경로 사용. 현재 운영 설정은 `~/deploy/web_terminal/shared/known_hosts`. |
 | `SSH_COMMAND` | OpenSSH 실행 파일. 기본 `/usr/bin/ssh`. |
 | `SSH_CONFIG_BACKUP_DIR` | config 변경 전 원본 백업 경로. 기본 `~/deploy/web_terminal/shared/ssh-config-backups`. |
 | `DEPLOY_SERVER_NAME` | 목록 최상단에 고정할 배포 서버 이름. 기본 `server`. |
@@ -34,6 +34,7 @@ chmod 600 .env.local
 | `UPLOAD_TIMEOUT_SECONDS` | 업로드 접속권과 전송 제한 시간. 기본 600초. nginx 시간 제한도 함께 조정. |
 | `UPLOAD_MAX_CONCURRENT` | 사용자별 동시 전송 수. 기본 2. 각 터미널의 파일은 순차 전송. |
 | `DEV_PORT` | 로컬 개발 포트. 기본 5160. |
+| `DEV_SSH_KNOWN_HOSTS_PATH` | 선택. 개발 모드에서만 쓸 호스트 키 저장 위치. 기본은 원본 SSH 설정 사용. |
 
 MongoDB에는 `users`, `servers`, `connection_history`가 저장됩니다. 앱 전용 DB 계정은 `web_terminal`의 `readWrite` 권한과 Meteor Change Streams에 필요한 `getDefaultRWConcern` 조회 권한만 사용합니다. 별도 관리자 URI를 알고 있는 운영 환경에서는 `ops/provision-database.py`를 참고해 계정을 준비합니다. 이 스크립트는 현재 서버의 PM2에 저장된 MongoDB 관리자 URI를 읽고, 이름이 고정된 앱 전용 계정만 생성합니다. 비밀번호를 로그로 출력하거나 기존 계정 비밀번호를 바꾸지 않습니다.
 
@@ -51,6 +52,10 @@ meteor npm run dev
 
 `dev`는 `127.0.0.1`과 Meteor의 별도 로컬 MongoDB를 사용합니다. 운영 DB에 개발 데이터를 쓰지 않습니다. `start`는 `.env.local`의 MongoDB와 운영 설정을 사용합니다. Meteor 시작 전에 환경변수를 읽어 MongoDB 연결 설정에도 적용합니다.
 
+개발 화면은 `http://localhost:5160` 또는 `http://127.0.0.1:5160`으로 접속합니다. 개발 모드의 터미널 WebSocket과 파일 업로드는 같은 프로토콜·포트의 루프백 주소를 허용합니다. 운영 모드는 `ROOT_URL`의 출처만 허용합니다.
+
+개발 모드는 known_hosts를 복사하거나 `.meteor/local/known_hosts`로 바꾸지 않습니다. `.env.local`의 운영용 `SSH_KNOWN_HOSTS_PATH`도 개발에는 적용하지 않으며, 원본 SSH config에 지정된 파일과 기본 known_hosts를 사용합니다. 별도 파일이 필요하면 `DEV_SSH_KNOWN_HOSTS_PATH`를 설정하거나 `SSH_KNOWN_HOSTS_PATH`를 셸에서 명시적으로 전달합니다. 둘 다 있으면 개발 전용 값이 우선합니다. 시작 환경변수를 바꾸거나 이전 개발 실행에서 업그레이드한 경우에는 `npm run dev`를 다시 시작해야 합니다.
+
 개발 서버를 계속 실행하려면 다음처럼 tmux에서 실행합니다.
 
 ```bash
@@ -61,7 +66,7 @@ tmux attach -t web-terminal-dev
 tmux kill-session -t web-terminal-dev
 ```
 
-`meteor npm test`는 인증 정보 암호화, SSH config Include와 기본값 해석, config 블록 편집·공유 별칭 삭제·심볼릭 링크 보존·문법 오류 및 동시 수정 거부, 바이너리 업로드·기존 파일 보호·중단 처리·한글 작업 경로·PID 추적, 입력 검증, dotenv의 안전한 전달을 검사합니다. 배포 후 `meteor npm run verify`는 Chrome으로 로그인·목록·Sync·고정 배포 서버의 로컬 셸·실제 SSH 명령·config 등록/수정/삭제·모바일 화면을 확인합니다. 기본 검증 대상 SSH 별칭은 `nginx`입니다. `VERIFY_CONFIG_ALIAS`로 변경하고 `VERIFY_JUMP_ALIAS`로 기존 경유 접속과 새 ProxyJump 블록 검사 대상을 추가하며, Chrome 경로는 `CHROME_PATH`로 지정합니다. 결과 화면은 Git에서 제외한 `test-results/`에 저장합니다. 검증은 임시 `__verify_*` config 블록을 추가하고 완료 후 삭제합니다. `127.0.0.1:22561`의 LocalForward로 nginx의 HTTP 포트 80과 포워딩 중 별도 SSH 업로드도 검사하므로 이 검증 포트는 사용 중이지 않아야 합니다. 임시 `.deploy/qa.json` 및 `.deploy/qa_identity`가 있을 때만 별도 SSH 비밀번호·키 접속 검사도 실행합니다.
+`meteor npm test`는 인증 정보 암호화, SSH config Include와 기본값 해석, config 블록 편집·공유 별칭 삭제·심볼릭 링크 보존·문법 오류 및 동시 수정 거부, 바이너리 업로드·기존 파일 보호·중단 처리·한글 작업 경로·PID 추적, 입력 검증, dotenv의 안전한 전달을 검사합니다. 개발 모드의 출처 제한·known_hosts 설정 우선순위, XDG 환경변수와 다단계 링크를 사용하는 Include, macOS의 Meteor 가상 경로와 실제 PTY 모듈 경로도 회귀 검사합니다. 배포 후 `meteor npm run verify`는 Chrome으로 로그인·목록·Sync·고정 배포 서버의 로컬 셸·실제 SSH 명령·config 등록/수정/삭제·모바일 화면을 확인합니다. 기본 검증 대상 SSH 별칭은 `nginx`입니다. `VERIFY_CONFIG_ALIAS`로 변경하고 `VERIFY_JUMP_ALIAS`로 기존 경유 접속과 새 ProxyJump 블록 검사 대상을 추가하며, Chrome 경로는 `CHROME_PATH`로 지정합니다. 결과 화면은 Git에서 제외한 `test-results/`에 저장합니다. 검증은 임시 `__verify_*` config 블록을 추가하고 완료 후 삭제합니다. `127.0.0.1:22561`의 LocalForward로 nginx의 HTTP 포트 80과 포워딩 중 별도 SSH 업로드도 검사하므로 이 검증 포트는 사용 중이지 않아야 합니다. 임시 `.deploy/qa.json` 및 `.deploy/qa_identity`가 있을 때만 별도 SSH 비밀번호·키 접속 검사도 실행합니다.
 
 ## 배포
 
@@ -100,13 +105,13 @@ curl -fsS https://terminal.digix.kr/health
 
 목록 최상단의 `server`는 앱이 배포된 머신에서 실행 계정의 로그인 셸을 바로 엽니다. SSH config와 별개로 자동 생성되며 검색·목록 스크롤에도 고정되고 삭제할 수 없습니다. 이름은 `DEPLOY_SERVER_NAME`으로 변경합니다. SSH로 등록된 같은 이름의 별칭은 별도의 원격 접속 항목입니다.
 
-최초 관리자 생성 후 SSH config 목록을 가져옵니다. `Host *`·패턴은 제외하고 명시된 별칭을 가져오며, `Include`와 `ProxyJump`, `ProxyCommand`, `IdentityFile` 등의 실제 값은 OpenSSH의 `ssh -G`로 해석합니다. 기존 config에서 `User` 뒤에 `#` 주석이 붙은 경우 실제 사용자 이름만 가져오고 SSH 실행 시 그 이름을 명시합니다. 접속할 때에도 최신 config를 다시 읽습니다. Sync는 config를 다시 읽어 새 별칭을 추가하고 기존 별칭의 접속 설정을 갱신하며, 파일에서 사라진 별칭은 목록에서 삭제합니다. 유지되는 별칭의 인증 정보와 고정 배포 서버는 보존합니다. config에 남아 있지만 해석할 수 없는 별칭은 삭제하지 않고 설정 오류로 표시합니다.
+최초 관리자 생성 후 SSH config 목록을 가져옵니다. `Host *`·패턴은 제외하고 명시된 별칭을 가져오며, `Include`와 `ProxyJump`, `ProxyCommand`, `IdentityFile` 등의 실제 값은 OpenSSH의 `ssh -G`로 해석합니다. `~/.ssh/config`가 `~/.home`의 파일을 가리키고 `~/.config/ssh/*.conf`를 Include하는 구조도 원본 파일을 따라갑니다. 목록과 편집기는 중첩 Include·글로브·`${XDG_CONFIG_HOME}` 같은 환경변수·심볼릭 링크를 읽으며, 상대 Include는 OpenSSH와 같이 `~/.ssh` 기준입니다. 사용한 환경변수는 앱을 실행한 프로세스에도 설정되어 있어야 합니다. 기존 config에서 `User` 뒤에 `#` 주석이 붙은 경우 실제 사용자 이름만 가져오고 SSH 실행 시 그 이름을 명시합니다. 접속할 때에도 최신 config를 다시 읽습니다. Sync는 config를 다시 읽어 새 별칭을 추가하고 기존 별칭의 접속 설정을 갱신하며, 파일에서 사라진 별칭은 목록에서 삭제합니다. 유지되는 별칭의 인증 정보와 고정 배포 서버는 보존합니다. config에 남아 있지만 해석할 수 없는 별칭은 삭제하지 않고 설정 오류로 표시합니다.
 
 `+` 및 각 서버의 `⋯` 설정은 실제 `Host` 블록을 보여주는 편집기입니다. HostName·User·Port·경유 접속·포트 포워딩을 직접 편집합니다. Include 파일의 블록도 해당 실제 파일에 저장하며, 같은 별칭의 Host 블록이 여러 개면 모두 표시합니다. 공유 Host 블록은 다른 별칭도 영향을 받는다는 안내가 나옵니다. 새 블록은 루트 config의 첫 Host/Match 블록 앞에 추가합니다. 저장 전 별도 임시 config에서 OpenSSH 문법과 유효 주소를 검사하며, 파일이 편집 도중 외부에서 바뀌면 최신 내용을 다시 불러와야 합니다. 원본을 권한 0600으로 백업한 뒤 실제 대상 파일을 원자적으로 교체하고, `.ssh/config`와 Include의 심볼릭 링크는 유지합니다. 다른 블록·Match·주석은 그대로 보존합니다. 삭제는 실제 config에서도 해당 별칭을 제거하며, 공유 블록의 다른 별칭은 유지합니다. 기존 수동 등록 항목도 편집 후 저장하면 config 항목으로 전환됩니다.
 
 config 인증은 운영 서버에 이미 있는 개인 키 또는 SSH agent를 사용합니다. 비밀번호가 필요한 서버는 해당 서버의 설정에서 비밀번호 인증으로 바꾸세요. 키 인증에서는 config의 IdentityFile을 사용하거나 개인 키를 업로드할 수 있습니다. 키에 암호가 있으면 키 암호도 입력합니다. 비밀번호·업로드한 개인 키·키 암호는 config에 기록하지 않고 암호화한 DB 필드에 별도 저장합니다. SSH config 경로와 IdentityFile은 앱 서버 기준이며, 경유 서버의 별도 인증은 경유 서버에 맞는 SSH config/키를 준비해야 합니다.
 
-새 호스트 키는 known_hosts에 저장하며 변경된 호스트 키는 거부합니다. ProxyJump의 모든 경유 단계도 앱의 같은 known_hosts를 사용하도록 임시 Include config를 적용합니다. ProxyJump/ProxyCommand 및 LocalForward/RemoteForward는 SSH config를 따릅니다. 포트 포워딩의 리스닝 포트는 앱 서버에 열리고, 같은 포워딩 포트로 여러 탭을 열면 충돌할 수 있습니다. ControlMaster 공유 연결은 세션별 종료를 위해 비활성화하고, LocalCommand는 실행하지 않습니다. 연결 종료, 탭 닫기, 로그아웃, 브라우저 연결 종료 시 해당 SSH 또는 로컬 셸 프로세스와 임시 키 파일을 정리합니다. 셸에서 `exit`로 종료할 수도 있습니다. `Ctrl+C`는 실행 중인 명령을 중단하며, 터미널 연결은 유지됩니다. 연결 기록은 메타데이터만 저장하고 터미널 출력·입력은 DB에 저장하지 않습니다. 기록은 30일 후 삭제됩니다.
+새 호스트 키는 known_hosts에 저장하며 변경된 호스트 키는 거부합니다. 접속용 임시 config는 원본 config를 `Include`하므로 개인 키나 SSH 설정을 복사하지 않습니다. `SSH_KNOWN_HOSTS_PATH`를 명시한 경우에만 ProxyJump의 모든 경유 단계에도 같은 known_hosts를 적용합니다. 그렇지 않으면 각 호스트의 `UserKnownHostsFile`(환경변수·토큰·여러 경로 포함)과 기본 known_hosts를 그대로 사용합니다. ProxyJump/ProxyCommand 및 LocalForward/RemoteForward는 SSH config를 따릅니다. 포트 포워딩의 리스닝 포트는 앱 서버에 열리고, 같은 포워딩 포트로 여러 탭을 열면 충돌할 수 있습니다. ControlMaster 공유 연결은 세션별 종료를 위해 비활성화하고, LocalCommand는 실행하지 않습니다. 연결 종료, 탭 닫기, 로그아웃, 브라우저 연결 종료 시 해당 SSH 또는 로컬 셸 프로세스와 임시 키 파일을 정리합니다. 셸에서 `exit`로 종료할 수도 있습니다. `Ctrl+C`는 실행 중인 명령을 중단하며, 터미널 연결은 유지됩니다. 연결 기록은 메타데이터만 저장하고 터미널 출력·입력은 DB에 저장하지 않습니다. 기록은 30일 후 삭제됩니다.
 
 ## 파일 드롭 업로드
 

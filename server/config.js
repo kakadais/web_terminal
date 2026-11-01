@@ -15,7 +15,9 @@ export const config = {
   adminPassword: required('ADMIN_PASSWORD'),
   encryptionKey: required('CREDENTIAL_ENCRYPTION_KEY'),
   sshConfig: path.resolve((process.env.SSH_CONFIG_PATH || '~/.ssh/config').replace(/^~(?=\/|$)/, os.homedir())),
-  knownHosts: path.resolve((process.env.SSH_KNOWN_HOSTS_PATH || '~/.ssh/known_hosts').replace(/^~(?=\/|$)/, os.homedir())),
+  // Leave unset to honor per-host UserKnownHostsFile, tokens and OpenSSH defaults.
+  knownHosts: process.env.SSH_KNOWN_HOSTS_PATH?.trim()
+    ? path.resolve(process.env.SSH_KNOWN_HOSTS_PATH.replace(/^~(?=\/|$)/, os.homedir())) : null,
   sshCommand: process.env.SSH_COMMAND || '/usr/bin/ssh',
   sshConfigBackup: path.resolve((process.env.SSH_CONFIG_BACKUP_DIR || '~/deploy/web_terminal/shared/ssh-config-backups').replace(/^~(?=\/|$)/, os.homedir())),
   localServerName: process.env.DEPLOY_SERVER_NAME?.trim() || 'server',

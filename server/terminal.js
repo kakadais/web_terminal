@@ -13,13 +13,14 @@ import { readAliases, resolveAlias } from '../lib/ssh-config.cjs';
 import { validateServer } from '../lib/server-input.cjs';
 import { createPidTracker } from '../lib/terminal-tracking.cjs';
 import { UploadError, validateFile, resolveDirectory, storeUpload } from '../lib/file-upload.cjs';
+import { allowedOrigins } from '../lib/request-origin.cjs';
 
 const tickets = new Map();
 const sessions = new Map();
 const connections = new Map();
 const uploadGrants = new Map();
 const server = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024, perMessageDeflate: false });
-const origin = new URL(config.rootUrl).origin;
+const origins = allowedOrigins(config.rootUrl, Meteor.isDevelopment);
 
 function send(socket, message) {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
@@ -117,7 +118,7 @@ WebApp.rawHandlers.use('/terminal/upload', async (request, response) => {
     response.end(JSON.stringify(body));
   };
   if (request.url !== '/' || request.method !== 'POST') { request.resume(); reply(405, { error: 'POST 요청만 사용할 수 있습니다.' }); return; }
-  if (request.headers.origin !== origin) { request.resume(); reply(403, { error: '요청 출처를 확인할 수 없습니다.' }); return; }
+  if (!origins.has(request.headers.origin)) { request.resume(); reply(403, { error: '요청 출처를 확인할 수 없습니다.' }); return; }
   const token = request.headers['x-upload-ticket'];
   const grant = typeof token === 'string' ? uploadGrants.get(token) : null;
   if (!grant || grant.expires < Date.now()) { request.resume(); reply(401, { error: '업로드 접속권이 만료되었거나 올바르지 않습니다.' }); return; }
@@ -147,7 +148,7 @@ WebApp.rawHandlers.use('/terminal/upload', async (request, response) => {
 
 WebApp.httpServer.on('upgrade', (request, socket, head) => {
   if (request.url?.split('?')[0] !== '/terminal/ws') return;
-  if (request.headers.origin !== origin) {
+  if (!origins.has(request.headers.origin)) {
     socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
     return;
   }
@@ -234,7 +235,13 @@ server.on('connection', socket => {
       } else if (message.type === 'resize') {
         session.terminal.resize(clamp(message.cols, 20, 400, 100), clamp(message.rows, 5, 200, 30));
       } else if (message.type === 'close') socket.close(1000, 'User disconnected');
-    } catch (_) {
+    } catch (error) {
+      // Do not log SSH stdout/stderr or error messages, which can contain config secrets.
+      if (connecting && !session) console.error('[terminal] Session setup failed', {
+        code: error.code || error.name,
+        path: error.path,
+        frames: error.stack?.split('\n').filter(line => /^\s+at /.test(line)).slice(0, 4),
+      });
       send(socket, { type: 'error', message: session ? '터미널 처리 중 오류가 발생했습니다.' : '연결을 시작하지 못했습니다. 다시 로그인하거나 서버 접속 정보를 확인해 주세요.' });
       socket.close(1008, 'Session rejected');
     }

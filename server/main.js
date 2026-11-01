@@ -29,8 +29,10 @@ WebApp.handlers.use('/health', async (request, response) => {
 });
 
 Meteor.startup(async () => {
-  fs.mkdirSync(path.dirname(config.knownHosts), { recursive: true, mode: 0o700 });
-  if (!fs.existsSync(config.knownHosts)) fs.writeFileSync(config.knownHosts, '', { mode: 0o600 });
+  if (config.knownHosts) {
+    fs.mkdirSync(path.dirname(config.knownHosts), { recursive: true, mode: 0o700 });
+    if (!fs.existsSync(config.knownHosts)) fs.writeFileSync(config.knownHosts, '', { mode: 0o600 });
+  }
   await Servers.rawCollection().createIndex({ ownerId: 1, source: 1, sshAlias: 1 },
     { unique: true, partialFilterExpression: { source: 'config' } });
   await Servers.rawCollection().createIndex({ ownerId: 1, name: 1 });
