@@ -175,3 +175,13 @@ textarea { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 12px; 
   .upload-help { display: none; }
   .upload-item > span:first-child { max-width: 100%; }
 }
+
+.security-dialog { max-width: 520px; max-height: 90vh; overflow-y: auto; }
+.security-dialog h3 { font-size: 15px; margin: 18px 0 10px; }
+.mfa-qr { display: block; margin: 12px auto; border-radius: 8px; }
+.mfa-secret { display: block; overflow-wrap: anywhere; margin: 10px 0; user-select: all; }
+.recovery-codes { font-size: 12px; overflow-x: auto; padding: 12px; background: #10141d; border-radius: 8px; user-select: all; }
+.security-events { list-style: none; padding: 0; }
+.security-events li { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-bottom: 1px solid #283142; }
+.security-events small { color: #9ba8bd; }
+.account-actions { flex-wrap: wrap; }

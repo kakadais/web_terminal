@@ -6,13 +6,8 @@ import path from 'node:path';
 import { Servers, ConnectionHistory } from '../imports/api/collections';
 import { config } from './config';
 import { syncServers, ensureLocalServer } from './servers';
+import './security';
 import './terminal';
-
-Accounts.config({ forbidClientAccountCreation: true, loginExpirationInDays: 1 });
-Accounts.validateLoginAttempt(attempt => {
-  if (!attempt.allowed) throw new Meteor.Error('login-failed', '아이디 또는 비밀번호를 확인해 주세요.');
-  return true;
-});
 
 WebApp.handlers.use('/health', async (request, response) => {
   if (request.method !== 'GET' || request.url !== '/') { response.writeHead(404); response.end(); return; }

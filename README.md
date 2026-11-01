@@ -2,6 +2,8 @@
 
 Meteor 3.5.2 + React 기반의 로그인형 SSH 서버 관리 화면입니다. 운영 주소는 https://terminal.digix.kr 이고, nginx가 `server`의 `192.168.1.4:5160`으로 HTTP 및 WebSocket을 전달합니다.
 
+로그인 후 `계정 보안`에서 인증 앱 2단계 인증, 복구 코드, 로그인 기록과 모든 기기 로그아웃을 관리합니다. 새 탭에는 다시 로그인해야 합니다. 인증·암호 교체·Git 이력 정리 절차는 [보안 운영 문서](ops/SECURITY.md)를 참고하세요. 새 clone에서는 `npm ci` 후 `git config core.hooksPath .githooks`로 비밀정보 커밋 검사를 켭니다.
+
 로그인하면 왼쪽에 서버 목록이 표시됩니다. 최상단의 `server`는 배포 서버의 로컬 셸을 바로 열고, 다른 서버는 SSH 터미널로 연결합니다. 여러 서버를 탭으로 사용할 수 있습니다. `Sync`는 **앱이 실행되는 서버**의 SSH config를 읽습니다. `+`와 `⋯` 설정에서 실제 config 블록을 등록·편집·삭제하며, 비밀번호 또는 SSH 개인 키·키 암호도 저장할 수 있습니다.
 
 ## 환경변수
@@ -21,7 +23,7 @@ chmod 600 .env.local
 | `MONGO_URL` | `127.0.0.1:27777/web_terminal`의 인증 URI. URI의 비밀번호는 URL 인코딩. |
 | `MONGO_OPLOG_URL` | 선택. 현재 비워 두고 MongoDB Change Streams 사용. |
 | `ADMIN_USERNAME`, `ADMIN_PASSWORD` | 최초 관리자 생성 시 사용. 기존 계정의 비밀번호를 재설정하지 않음. |
-| `CREDENTIAL_ENCRYPTION_KEY` | AES-256-GCM 키. `openssl rand -hex 32`로 생성하고 배포 간 유지. |
+| `CREDENTIAL_ENCRYPTION_KEY` | SSH 비밀정보와 2단계 인증 등록 키의 AES-256-GCM 키. `openssl rand -hex 32`로 생성하고 배포 간 유지. |
 | `SSH_CONFIG_PATH` | 운영 서버의 SSH config. 기본 `~/.ssh/config`. |
 | `SSH_KNOWN_HOSTS_PATH` | 선택. 명시하면 모든 SSH/ProxyJump 단계의 호스트 키 저장 위치를 재정의. 비워 두면 SSH config의 `UserKnownHostsFile` 및 OpenSSH 기본 경로 사용. 현재 운영 설정은 `~/deploy/web_terminal/shared/known_hosts`. |
 | `SSH_COMMAND` | OpenSSH 실행 파일. 기본 `/usr/bin/ssh`. |

@@ -161,5 +161,4 @@ Meteor.methods({
 
 DDPRateLimiter.addRule({ name: name => name.startsWith('servers.') || name.startsWith('terminal.'),
   type: 'method', connectionId: () => true }, 30, 60_000);
-DDPRateLimiter.addRule({ name: 'login', type: 'method', clientAddress: () => true }, 10, 60_000);
 DDPRateLimiter.addRule({ name: 'changePassword', type: 'method', connectionId: () => true }, 5, 60_000);

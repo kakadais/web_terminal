@@ -46,6 +46,8 @@ done
 [[ "$ROOT_URL" == https://* ]] || fail "Set the public HTTPS URL"
 [[ -n "$HEALTHCHECK_URL" ]] || fail "Set a health check URL"
 [[ -f "$RUNTIME_ENV_FILE" ]] || fail "Missing runtime env file"
+# A fresh deployment checkout needs dotenv before the configuration validator.
+meteor npm ci --no-audit --no-fund
 # Parse dotenv as data; do not execute .env.local as shell code.
 meteor node scripts/runtime-env.cjs "$RUNTIME_ENV_FILE"
 
@@ -72,7 +74,6 @@ trap cleanup_local EXIT
 
 log "Building $PROJECT_NAME for $BUILD_ARCH; Node $node_version / npm $npm_version"
 # 프로젝트의 의존성 설치·테스트·추가 빌드 단계가 있다면 이 앞에서 실행한다.
-meteor npm ci --no-audit --no-fund
 meteor npm test
 COPYFILE_DISABLE=1 tar -czf "$build_dir/native-source.tar.gz" -C "$PROJECT_DIR/native/terminal" Cargo.toml Cargo.lock src
 meteor node scripts/runtime-env.cjs "$RUNTIME_ENV_FILE" "$build_dir/.runtime.env"

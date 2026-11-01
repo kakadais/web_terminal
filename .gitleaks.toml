@@ -1,0 +1,12 @@
+title = "Web Terminal secret detection"
+[extend]
+useDefault = true
+
+[[rules]]
+id = "terminal-static-credential"
+description = "Hardcoded terminal or administrator credential"
+regex = '''(?i)(?:term_token|admin_password)\s*(?:=|:|\|\|)\s*["']([^"'\r\n]{8,})["']'''
+secretGroup = 1
+[[rules.allowlists]]
+regexTarget = "secret"
+regexes = ['''^(?:CHANGE_ME|YOUR_PASSWORD)$''']

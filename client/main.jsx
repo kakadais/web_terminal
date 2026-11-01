@@ -7,6 +7,14 @@ import '@xterm/xterm/css/xterm.css';
 import './main.css';
 import { Servers, ConnectionHistory } from '../imports/api/collections';
 import TerminalPane from './TerminalPane';
+import SecurityDialog from './SecurityDialog';
+
+// Keep credentials in this tab, rather than persistent storage shared by every
+// future browser session. Remove only this app's legacy account storage keys.
+Accounts.config({ clientStorage: 'session' });
+for (const key of ['Meteor.userId', 'Meteor.loginToken', 'Meteor.loginTokenExpires']) {
+  try { localStorage.removeItem(key); } catch (_) { /* Storage may be disabled. */ }
+}
 
 const call = (name, ...args) => Meteor.callAsync(name, ...args);
 const errorMessage = error => error?.reason || error?.message || '요청을 처리하지 못했습니다.';
@@ -16,12 +24,17 @@ const address = record => `${record.username}@${record.host}${record.source === 
 function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
+  const [needsCode, setNeedsCode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const submit = async event => {
     event.preventDefault(); setBusy(true); setError('');
-    try { await Meteor.loginWithPasswordAsync(username.trim(), password); }
-    catch (err) { setError(errorMessage(err)); }
+    try {
+      if (needsCode) await new Promise((resolve, reject) => Meteor.loginWithPasswordAnd2faCode(username.trim(), password, code.trim(), err => err ? reject(err) : resolve()));
+      else await Meteor.loginWithPasswordAsync(username.trim(), password);
+    }
+    catch (err) { if (err.error === 'mfa-required') setNeedsCode(true); setCode(''); setError(errorMessage(err)); }
     finally { setBusy(false); }
   };
   return <main className="login-page">
@@ -31,6 +44,7 @@ function Login() {
       <h1>Web Terminal</h1><p className="muted">서버에 연결하고, 한 곳에서 관리하세요.</p>
       <label>아이디<input autoFocus autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required /></label>
       <label>비밀번호<input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required /></label>
+      {needsCode && <label>인증 코드 또는 복구 코드<input autoFocus autoComplete="one-time-code" value={code} onChange={e => setCode(e.target.value)} required maxLength={40} /></label>}
       {error && <div role="alert" className="error">{error}</div>}
       <button className="primary full" disabled={busy}>{busy ? '로그인 중…' : '로그인'}</button>
       <div className="login-note">Secure access · SSH</div>
@@ -113,9 +127,9 @@ function PasswordDialog({ onClose, notify }) {
   };
   return <div className="modal-backdrop"><form className="dialog compact" onSubmit={submit}><div className="dialog-heading"><h2>로그인 비밀번호 변경</h2><button type="button" className="icon-button" onClick={onClose}>×</button></div>
     <label>현재 비밀번호<input type="password" value={oldPassword} onChange={e => setOldPassword(e.target.value)} autoComplete="current-password" required /></label>
-    <label>새 비밀번호<input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} autoComplete="new-password" required minLength={10} maxLength={200} /></label>
+    <label>새 비밀번호<input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} autoComplete="new-password" required minLength={15} maxLength={200} /></label>
     <label>새 비밀번호 확인<input type="password" value={confirmation} onChange={e => setConfirmation(e.target.value)} autoComplete="new-password" required /></label>
-    <p className="hint">초기 환경변수의 비밀번호는 기존 계정의 비밀번호를 재설정하지 않습니다.</p>
+    <p className="hint">15자 이상의 다른 서비스와 겹치지 않는 비밀번호를 사용하세요.</p>
     {error && <div className="error" role="alert">{error}</div>}<button className="primary full" disabled={busy}>변경</button>
   </form></div>;
 }
@@ -182,7 +196,7 @@ function Workspace({ user }) {
         {!loading && !filtered.length && <p className="list-note">{search ? '검색 결과가 없습니다.' : 'Sync로 목록을 가져오거나 +로 서버를 추가하세요.'}</p>}
         {filtered.map(serverRow)}
       </div>
-      <div className="sidebar-footer"><div className="account"><span className="avatar">{user.username?.slice(0, 1).toUpperCase()}</span><div><strong>{user.username}</strong><small><span className={`online-dot ${online ? 'online' : ''}`} />{online ? '연결됨' : '서버 연결 중…'}</small></div></div><div className="account-actions"><button onClick={() => setDialog({ type: 'password' })}>비밀번호 변경</button><button onClick={logout}>로그아웃</button></div></div>
+      <div className="sidebar-footer"><div className="account"><span className="avatar">{user.username?.slice(0, 1).toUpperCase()}</span><div><strong>{user.username}</strong><small><span className={`online-dot ${online ? 'online' : ''}`} />{online ? '연결됨' : '서버 연결 중…'}</small></div></div><div className="account-actions"><button onClick={() => setDialog({ type: 'security' })}>계정 보안</button><button onClick={() => setDialog({ type: 'password' })}>비밀번호 변경</button><button onClick={logout}>로그아웃</button></div></div>
     </aside>
     {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
     <main className="terminal-workspace">
@@ -197,6 +211,7 @@ function Workspace({ user }) {
     </main>
     {notice && <div role="status" className="toast"><span>{notice}</span><button onClick={() => setNotice('')}>×</button></div>}
     {dialog?.type === 'server' && <ServerDialog record={dialog.record} onClose={() => setDialog(null)} notify={notify} />}
+    {dialog?.type === 'security' && <SecurityDialog onClose={() => setDialog(null)} />}
     {dialog?.type === 'password' && <PasswordDialog onClose={() => setDialog(null)} notify={notify} />}
   </div>;
 }
