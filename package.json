@@ -21,7 +21,7 @@
     "dotenv": "^18.0.7",
     "meteor-node-stubs": "1.2.32",
     "otpauth": "9.5.2",
-    "pako": "2.1.0",
+    "pako": "3.0.3",
     "qrcode": "1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
