@@ -1,6 +1,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { authenticator, tokenCounter, recoveryCodes, recoveryHash, FailureLimiter } = require('../lib/auth-security.cjs');
+const { authenticator, tokenCounter, recoveryCodes, recoveryHash, validNewPassword, FailureLimiter } = require('../lib/auth-security.cjs');
+
+test('password policy rejects API bypasses, including UTF-16 length tricks and whitespace-only input', () => {
+  for (const value of [null, {}, 123, '', 'a'.repeat(14), ' '.repeat(15), '😀'.repeat(8), 'a'.repeat(201)]) assert.equal(validNewPassword(value), false);
+  for (const value of ['a'.repeat(15), 'a'.repeat(200), '😀'.repeat(15), '한글과 공백을 포함하는 긴 비밀번호']) assert.equal(validNewPassword(value), true);
+});
 
 test('TOTP accepts only the current time window and returns a counter for atomic replay rejection', () => {
   const otp=authenticator(null,'example'), now=1800000000000;

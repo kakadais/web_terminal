@@ -111,17 +111,28 @@ function ServerDialog({ record, onClose, notify }) {
   </div>;
 }
 
-function PasswordDialog({ onClose, notify }) {
+function PasswordDialog({ onClose }) {
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
+  const [code, setCode] = useState('');
+  const [requiresCode, setRequiresCode] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let active = true;
+    call('security.status').then(value => { if (active) setRequiresCode(value.enabled); })
+      .catch(err => { if (active) setError(errorMessage(err)); });
+    return () => { active = false; };
+  }, []);
   const submit = async event => {
     event.preventDefault(); setError('');
     if (newPassword !== confirmation) { setError('새 비밀번호가 일치하지 않습니다.'); return; }
     setBusy(true);
-    try { await new Promise((resolve, reject) => Accounts.changePassword(oldPassword, newPassword, error => error ? reject(error) : resolve())); notify('로그인 비밀번호를 변경했습니다.'); onClose(); }
+    try {
+      await call('security.changePassword', Accounts._hashPassword(oldPassword), newPassword, code.trim());
+      await new Promise(resolve => Meteor.logout(() => { onClose(); resolve(); }));
+    }
     catch (err) { setError(errorMessage(err)); }
     finally { setBusy(false); }
   };
@@ -129,8 +140,9 @@ function PasswordDialog({ onClose, notify }) {
     <label>현재 비밀번호<input type="password" value={oldPassword} onChange={e => setOldPassword(e.target.value)} autoComplete="current-password" required /></label>
     <label>새 비밀번호<input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} autoComplete="new-password" required minLength={15} maxLength={200} /></label>
     <label>새 비밀번호 확인<input type="password" value={confirmation} onChange={e => setConfirmation(e.target.value)} autoComplete="new-password" required /></label>
-    <p className="hint">15자 이상의 다른 서비스와 겹치지 않는 비밀번호를 사용하세요.</p>
-    {error && <div className="error" role="alert">{error}</div>}<button className="primary full" disabled={busy}>변경</button>
+    {requiresCode && <label>인증 코드 또는 복구 코드<input autoComplete="one-time-code" value={code} onChange={e => setCode(e.target.value)} maxLength={40} required /></label>}
+    <p className="hint">15자 이상의 다른 서비스와 겹치지 않는 비밀번호를 사용하세요. 변경하면 모든 기기에서 로그아웃됩니다.</p>
+    {error && <div className="error" role="alert">{error}</div>}<button className="primary full" disabled={busy || requiresCode === null}>변경</button>
   </form></div>;
 }
 
@@ -212,7 +224,7 @@ function Workspace({ user }) {
     {notice && <div role="status" className="toast"><span>{notice}</span><button onClick={() => setNotice('')}>×</button></div>}
     {dialog?.type === 'server' && <ServerDialog record={dialog.record} onClose={() => setDialog(null)} notify={notify} />}
     {dialog?.type === 'security' && <SecurityDialog onClose={() => setDialog(null)} />}
-    {dialog?.type === 'password' && <PasswordDialog onClose={() => setDialog(null)} notify={notify} />}
+    {dialog?.type === 'password' && <PasswordDialog onClose={() => setDialog(null)} />}
   </div>;
 }
 

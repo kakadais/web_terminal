@@ -3,7 +3,7 @@ import { Meteor } from 'meteor/meteor';
 import { Accounts } from 'meteor/accounts-base';
 
 const eventLabels = { 'login-succeeded': '로그인 성공', 'login-failed': '로그인 실패', 'session-resumed': '로그인 재연결',
-  'mfa-enabled': '2단계 인증 켜짐', 'mfa-disabled': '2단계 인증 꺼짐', 'all-sessions-revoked': '모든 로그인 종료' };
+  'mfa-enabled': '2단계 인증 켜짐', 'mfa-disabled': '2단계 인증 꺼짐', 'all-sessions-revoked': '모든 로그인 종료', 'password-changed': '비밀번호 변경' };
 
 export default function SecurityDialog({ onClose }) {
   const [status, setStatus] = useState(null);

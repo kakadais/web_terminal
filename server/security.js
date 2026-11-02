@@ -8,11 +8,19 @@ import { DDPRateLimiter } from 'meteor/ddp-rate-limiter';
 import { WebApp, WebAppInternals } from 'meteor/webapp';
 import { config } from './config';
 import { encrypt, decrypt } from '../lib/credentials.cjs';
-import { authenticator, tokenCounter, recoveryHash, recoveryCodes, FailureLimiter } from '../lib/auth-security.cjs';
+import { authenticator, tokenCounter, recoveryHash, recoveryCodes, validNewPassword, FailureLimiter } from '../lib/auth-security.cjs';
 import { allowedOrigins } from '../lib/request-origin.cjs';
 
 Accounts.config({ forbidClientAccountCreation: true, loginExpirationInDays: 1,
   argon2Enabled: true, argon2Type: 'argon2id', argon2MemoryCost: 19456, argon2TimeCost: 2, argon2Parallelism: 1 });
+
+// Meteor's digest-only changePassword method cannot enforce plaintext length
+// or require our MFA factor. Fail closed if this pinned Meteor integration
+// changes, and route the UI through security.changePassword instead.
+if (typeof Meteor.server.method_handlers.changePassword !== 'function') throw new Error('Unsupported Meteor password method registration');
+Meteor.server.method_handlers.changePassword = function () {
+  throw new Meteor.Error('password-change-required', '화면을 새로고침한 뒤 비밀번호 변경을 이용해 주세요.');
+};
 
 const Events = new Mongo.Collection('security_events');
 const failures = new FailureLimiter();
@@ -74,6 +82,18 @@ Accounts.onLogin(attempt => audit(attempt.user?._id, attempt.type === 'resume' ?
 Accounts.onLoginFailure(attempt => audit(attempt.user?._id, 'login-failed', attempt.connection));
 
 Meteor.methods({
+  async 'security.changePassword'(password, newPassword, code) {
+    check(code, Match.Maybe(String));
+    const user = await authenticated(this, password);
+    if (!validNewPassword(newPassword)) throw new Meteor.Error('weak-password', '새 비밀번호는 15자 이상, 200자 이하로 입력해 주세요. 공백만 사용할 수 없습니다.');
+    const digest = crypto.createHash('sha256').update(newPassword).digest('hex');
+    if (digest === password.digest.toLowerCase()) throw new Meteor.Error('weak-password', '현재와 다른 새 비밀번호를 입력해 주세요.');
+    if (user.services?.webTerminalMfa && !await consumeFactor(user, code)) throw genericError();
+    await detachCurrentLogin(this, user._id);
+    await Accounts.setPasswordAsync(user._id, newPassword, { logout: true });
+    await audit(user._id, 'password-changed', this.connection);
+    return true;
+  },
   async 'security.status'() {
     if (!this.userId) throw new Meteor.Error('unauthorized', '로그인이 필요합니다.');
     const user = await Meteor.users.findOneAsync(this.userId);
