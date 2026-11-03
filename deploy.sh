@@ -13,6 +13,7 @@ KEEP_RELEASES=2
 BUILD_ARCH="os.linux.x86_64"
 LOCAL_BUILD_ROOT="$PROJECT_DIR/.meteor/build"
 PM2_PROCESS_NAME="$PROJECT_NAME"
+PM2_STARTUP_UNIT="pm2-ubuntu.service"
 PM2_MAX_MEMORY_RESTART="512M"
 PM2_NODE_ARGS="--max-old-space-size=384"
 PORT="5160"
@@ -35,6 +36,9 @@ if [[ "${1:-}" == "--help" && "$#" == 1 ]]; then
   exit 0
 fi
 [[ "$#" == 0 ]] || fail "Unsupported option; use --help"
+if [[ "${WEB_TERMINAL_DEPLOY_ISOLATED:-}" != 1 ]]; then
+  exec bash "$PROJECT_DIR/scripts/deploy-isolated.sh" "$PROJECT_DIR"
+fi
 for command_name in meteor ssh scp tar base64 mktemp; do
   command -v "$command_name" >/dev/null || fail "Missing command: $command_name"
 done
@@ -46,6 +50,10 @@ done
 [[ "$ROOT_URL" == https://* ]] || fail "Set the public HTTPS URL"
 [[ -n "$HEALTHCHECK_URL" ]] || fail "Set a health check URL"
 [[ -f "$RUNTIME_ENV_FILE" ]] || fail "Missing runtime env file"
+[[ -z "$PM2_STARTUP_UNIT" || "$PM2_STARTUP_UNIT" =~ ^[a-zA-Z0-9_.@-]+\.service$ ]] || fail "Invalid PM2 startup unit"
+# A project deployment must not silently replace the shared PM2 boot service.
+# Detect disabled/broken boot paths before installing or activating anything.
+ssh "$SSH_TARGET" bash -s -- "$PM2_STARTUP_UNIT" < scripts/check-pm2-startup.sh
 # A fresh deployment checkout needs dotenv before the configuration validator.
 meteor npm ci --no-audit --no-fund
 # Parse dotenv as data; do not execute .env.local as shell code.
@@ -222,7 +230,7 @@ export ENV_FILE="$deploy_root/shared/.env.local"
 unset METEOR_SETTINGS
 
 pm2_state() {
-  "$PM2_BIN" jlist | "$NODE_BIN" -e '
+  "$PM2_BIN" -s jlist | "$NODE_BIN" -e '
 const fs = require("fs");
 const [mode, name, script, cwd, interpreter, args, memory, port, rootUrl] = process.argv.slice(1);
 const matches = JSON.parse(fs.readFileSync(0, "utf8")).filter(app => app.name === name);

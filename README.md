@@ -80,12 +80,18 @@ tmux kill-session -t web-terminal-dev
 
 `deploy.sh`는 `~/WebstormProjects/deploy.md`의 릴리스 배포 계약에 맞춘 독립 스크립트입니다. 상위 배포 스크립트를 호출하지 않습니다.
 
+프로젝트 루트에서 `bash deploy.sh` 또는 `npm run deploy` 한 번으로 배포합니다. 로컬 `.env.local`에는 DB URI·암호화 키·초기 계정 설정이 준비되어 있어야 합니다. `ADMIN_PASSWORD`는 계정이 없을 때만 사용하므로, 최초 로그인 후 변경한 운영 비밀번호와 맞추거나 별도 txt에 기록할 필요가 없습니다.
+
 ```bash
 bash -n deploy.sh
 ./deploy.sh
 ```
 
 Linux x86-64용 Meteor 빌드 → SSH 업로드 → 운영 Node/npm 선택 → 의존성 설치와 배포 호스트의 Rust 보조 프로그램 빌드·검사 → `current` 전환 → PM2의 `web_terminal` 프로세스 갱신 → 실제 PID·포트·릴리스·DB health 검사 → PM2 save 순으로 진행합니다. 배포 호스트에도 Rust 1.95 이상이 필요하며 `CARGO`, `PATH`, `CARGO_HOME/bin` 또는 `~/.cargo/bin`을 사용합니다. 실행 파일은 릴리스별 `native/bin`에 보관하고 `.runtime.env`가 절대 경로를 지정하므로 복구 시 해당 버전으로 돌아갑니다. 컴파일 캐시는 `shared/native-target`에 둡니다. 실패 시 0이 아닌 종료 코드를 반환하고 산출물을 보존합니다. 현재 릴리스와 직전 정상 릴리스를 유지하고, 다른 앱의 프로세스나 데이터를 수정하지 않습니다. Meteor는 시작 후 cwd를 해당 릴리스의 `programs/server`로 바꾸므로 검증도 그 실제 경로를 확인합니다.
+
+빌드는 자동으로 임시 복사본에서 실행해 개발 서버의 `node_modules`와 `.meteor/local`을 보존합니다. 비밀 파일은 권한 600으로 복사하고 종료 시 삭제합니다. 성공한 임시 작업 폴더는 정리하고 실패한 빌드 산출물은 로그에 표시한 경로에 남깁니다.
+
+빌드 전에 `PM2_STARTUP_UNIT`의 실행 파일·활성화·기동 상태를 확인합니다. 현재 값은 `pm2-ubuntu.service`이며, 다른 기동 구성을 쓰면 이 값을 수정합니다. 부팅 설정이 깨졌으면 배포를 중단해 알리고 공유 PM2 서비스를 자동으로 덮어쓰지 않습니다. 현재 서버는 `/etc/systemd/system/pm2-ubuntu.service.d/10-runtime.conf`에서 앱 프로젝트와 독립적인 `~/.nvm/versions/node/v24.15.0/bin/pm2`를 사용합니다. 이 실행 경로를 제거하거나 Node 버전을 정리할 때는 PM2 부팅 설정도 함께 갱신해야 합니다.
 
 ```text
 server: ~/deploy/web_terminal/
@@ -97,7 +103,7 @@ server: ~/deploy/web_terminal/
   shared/ssh-config-backups/    # config 수정 전 원본과 파일 경로 manifest, 권한 0700/0600
 ```
 
-작업을 tmux에서 실행하려면 `tmux new-session -s web-terminal-deploy './deploy.sh'`를 사용하고 완료 후 세션을 정리합니다. 운영 앱은 기존 서버의 PM2 startup 서비스로 유지됩니다.
+작업을 tmux에서 실행하려면 `tmux -L codex new-session -s web-terminal-deploy './deploy.sh'`를 사용하고 완료 후 세션을 정리합니다. 운영 앱은 기존 서버의 PM2 startup 서비스로 유지됩니다.
 
 처음 HTTPS를 설정하는 경우:
 
