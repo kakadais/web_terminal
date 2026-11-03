@@ -40,13 +40,11 @@ Meteor.startup(async () => {
     admin = await Meteor.users.findOneAsync(id);
     console.log('[startup] Initial administrator created');
   }
-  // Bootstrap once. Restarts and deployments do not reset an existing password.
+  // Refresh from this host's config on every startup, including after deployment.
   await ensureLocalServer(admin._id);
-  if (!(await Servers.findOneAsync({ ownerId: admin._id, source: 'config' }))) {
-    try {
-      const result = await syncServers(admin._id);
-      console.log(`[startup] SSH config imported: ${result.imported}/${result.total}`);
-    } catch (_) { console.error('[startup] SSH config import failed; use Sync after checking SSH_CONFIG_PATH'); }
-  }
+  try {
+    const result = await syncServers(admin._id);
+    console.log(`[startup] SSH config synchronized: ${result.imported}/${result.total}; removed: ${result.removed}`);
+  } catch (_) { console.error('[startup] SSH config sync failed; use Sync after checking SSH_CONFIG_PATH'); }
   console.log('[startup] Web Terminal ready');
 });
