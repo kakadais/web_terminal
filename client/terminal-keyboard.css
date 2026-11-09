@@ -1,0 +1,28 @@
+div.workspace { height: var(--terminal-viewport-height, 100dvh); }
+.terminal-keyboard { flex-shrink: 0; min-height: 0; max-height: 56%; display: flex; flex-direction: column; margin-top: 8px; border-top: 1px solid #293b4c; padding-top: 7px; }
+.terminal-keyboard.expanded { max-height: min(56%, calc(100% - 120px)); }
+.terminal-keyboard-bar { display: flex; gap: 7px; flex-shrink: 0; min-width: 0; }
+.terminal-keyboard-shortcuts { display: flex; gap: 5px; min-width: 0; overflow-x: auto; scrollbar-width: thin; overscroll-behavior-x: contain; }
+.terminal-keyboard button { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
+.terminal-keyboard .terminal-key { flex: 1 0 0; min-width: 0; min-height: 42px; padding: 5px 2px; border-radius: 6px; font: 13px 'SFMono-Regular', Consolas, monospace; color: #dce6f1; background: #1a2736; box-shadow: 0 2px 0 #060b12; }
+.terminal-keyboard-shortcuts .terminal-key { flex: 0 0 auto; min-width: 44px; }
+.terminal-keyboard button:disabled { cursor: default; }
+.terminal-keyboard button:active { background: #304b53; transform: translateY(1px); box-shadow: none; }
+.terminal-keyboard button[aria-pressed=true] { background: #234d44; border-color: #64d3b0; color: #9cf1d1; }
+.terminal-keyboard .terminal-keyboard-toggle { display: flex; align-items: center; justify-content: center; gap: 6px; flex-shrink: 0; min-height: 42px; padding: 5px 10px; font-size: 11px; color: #8ce1c2; border-color: #395e54; background: #172f2c; }
+.terminal-keyboard-panel { min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; padding: 8px 1px 3px; }
+.terminal-keyboard-layouts { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.terminal-keyboard-layouts button { min-width: 51px; min-height: 34px; padding: 5px 9px; font-size: 11px; }
+.terminal-keyboard-layouts > span { margin-left: auto; color: #8298ab; font-size: 10px; }
+.terminal-keyboard-keys { display: flex; flex-direction: column; gap: 6px; width: 100%; max-width: 760px; margin: 0 auto; }
+.terminal-keyboard-row { display: flex; gap: 5px; }
+.terminal-keyboard-row .wide { flex-grow: 1.5; }
+.terminal-keyboard-row .space { flex-grow: 5; font-size: 11px; color: #9fb3c6; }
+.terminal-keyboard-row .enter { background: #23483f; border-color: #3c695b; color: #96e7c8; font-size: 21px; }
+.terminal-keyboard-function-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 5px; }
+@media (max-width: 780px) {
+  .terminal-pane { padding: 8px 6px 6px; }
+  .terminal-keyboard { padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .terminal-keyboard-layouts > span { max-width: 132px; font-size: 9px; line-height: 1.5; }
+  .terminal-keyboard .terminal-keyboard-toggle { flex-direction: column; gap: 2px; padding: 3px 7px; font-size: 9px; }
+}

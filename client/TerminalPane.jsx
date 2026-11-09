@@ -3,6 +3,8 @@ import { Meteor } from 'meteor/meteor';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { TerminalTransfer } from './terminal-transfer.mjs';
+import TerminalKeyboard from './TerminalKeyboard';
+import { emptyModifiers, hasModifiers, terminalKey } from './terminal-keyboard.mjs';
 
 const call = (name, ...args) => Meteor.callAsync(name, ...args);
 const errorMessage = error => error?.reason || error?.message || '파일 전송에 실패했습니다.';
@@ -10,6 +12,12 @@ const sizeLabel = size => size >= 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(
 
 export default function TerminalPane({ record, visible, attempt, onStatus }) {
   const container = useRef(null);
+  const terminalRef = useRef(null);
+  const visibleRef = useRef(visible); visibleRef.current = visible;
+  const modeRef = useRef('native');
+  const modifiersRef = useRef(emptyModifiers());
+  const [keyboardMode, setKeyboardMode] = useState('native');
+  const [modifiers, setModifiers] = useState(emptyModifiers);
   const connection = useRef({ sessionId: null, disposed: true, xhr: null, processing: false, queue: [], version: 0 });
   const dragDepth = useRef(0);
   const [connected, setConnected] = useState(false);
@@ -21,13 +29,33 @@ export default function TerminalPane({ record, visible, attempt, onStatus }) {
   const [transfer, setTransfer] = useState(null);
   const uploadPicker = useRef(null);
   const patchJob = (id, fields) => setJobs(previous => previous.map(job => job.id === id ? { ...job, ...fields } : job));
+  const updateModifiers = next => { modifiersRef.current = next; setModifiers(next); };
+  const changeKeyboard = mode => {
+    modeRef.current = mode; setKeyboardMode(mode); updateModifiers(emptyModifiers());
+    const terminal = terminalRef.current;
+    if (!terminal?.textarea) return;
+    terminal.blur(); terminal.textarea.inputMode = mode === 'full' ? 'none' : 'text';
+    if (visible && connected) terminal.focus();
+  };
+  const pressKey = key => {
+    const terminal = terminalRef.current;
+    if (!connected || !terminal) return;
+    const data = terminalKey(key, modifiersRef.current, terminal.modes);
+    updateModifiers(emptyModifiers());
+    if (data) { terminal.input(data); terminal.focus(); }
+  };
+
+  useEffect(() => { if (!visible) updateModifiers(emptyModifiers()); }, [visible]);
 
   useEffect(() => {
     const state = { sessionId: null, disposed: false, xhr: null, processing: false, queue: [], generation: 0, version: connection.current.version + 1 };
     connection.current = state; setConnected(false); setJobs([]); setNotice(''); setTransfer(null);
+    updateModifiers(emptyModifiers());
     const terminal = new Terminal({ cursorBlink: true, fontSize: 14, fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
       scrollback: 10000, theme: { background: '#0b1018', foreground: '#d7e1ec', cursor: '#64d3b0', selectionBackground: '#294858' } });
     const fit = new FitAddon(); terminal.loadAddon(fit); terminal.open(container.current);
+    terminalRef.current = terminal;
+    terminal.textarea.inputMode = modeRef.current === 'full' ? 'none' : 'text';
     let socket; let finished = false;
     let outgoing = Promise.resolve();
     const sendInput = data => {
@@ -49,14 +77,26 @@ export default function TerminalPane({ record, visible, attempt, onStatus }) {
     const status = value => { if (!state.disposed) onStatus(record._id, value); };
     const stopUploads = () => { transfers.dispose(); state.sessionId = null; state.generation++; state.xhr?.abort(); state.queue.length = 0;
       if (!state.disposed) setTransfer(previous => previous && !['done', 'error'].includes(previous.phase) ? { ...previous, phase: 'error', error: '터미널 연결이 종료되었습니다.' } : previous);
-      if (!state.disposed) { setConnected(false); setJobs(previous => previous.map(job => ['queued', 'preparing', 'sending'].includes(job.status) ? { ...job, status: 'error', message: '터미널 연결이 종료되었습니다.' } : job)); } };
+      if (!state.disposed) { setConnected(false); updateModifiers(emptyModifiers()); setJobs(previous => previous.map(job => ['queued', 'preparing', 'sending'].includes(job.status) ? { ...job, status: 'error', message: '터미널 연결이 종료되었습니다.' } : job)); } };
     const resize = () => {
       if (!container.current?.clientWidth || !container.current?.clientHeight) return;
       fit.fit();
       if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows }));
     };
     const observer = new ResizeObserver(resize); observer.observe(container.current);
-    const input = terminal.onData(data => { if (socket?.readyState === WebSocket.OPEN) Promise.resolve(transfers.input(data)).catch(() => {}); });
+    const input = terminal.onData(data => {
+      if (socket?.readyState !== WebSocket.OPEN) return;
+      // An armed on-screen modifier also works with the phone's native keyboard.
+      // Leave paste and terminal protocol responses intact.
+      if (hasModifiers(modifiersRef.current)) {
+        const single = data.length === 1 || (data.length === 2 && data.codePointAt(0) > 0xffff);
+        if (single) data = terminalKey(data, modifiersRef.current, terminal.modes);
+        if (single || !data.startsWith('\x1b')) updateModifiers(emptyModifiers());
+      }
+      Promise.resolve(transfers.input(data)).catch(() => {});
+    });
+    const clearModifiers = () => updateModifiers(emptyModifiers());
+    terminal.element.addEventListener('paste', clearModifiers, true);
     terminal.writeln(`\x1b[38;2;100;211;176mConnecting to ${record.name}…\x1b[0m`);
     status('connecting'); resize();
     call('terminal.open', record._id).then(grant => {
@@ -72,7 +112,7 @@ export default function TerminalPane({ record, visible, attempt, onStatus }) {
             if (message.offset && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'output-ack', offset: message.offset }));
           }).catch(() => transfers.cancel());
         }
-        else if (message.type === 'ready') { state.sessionId = message.sessionId; setConnected(true); status('connected'); resize(); terminal.focus(); }
+        else if (message.type === 'ready') { state.sessionId = message.sessionId; setConnected(true); status('connected'); resize(); if (visibleRef.current) terminal.focus(); }
         else if (message.type === 'exit') {
           finished = true; stopUploads(); status('closed'); terminal.writeln(`\r\n\x1b[90m터미널 종료 (exit ${message.exitCode})\x1b[0m`);
         } else if (message.type === 'error') { status('error'); terminal.writeln(`\r\n\x1b[31m${message.message}\x1b[0m`); }
@@ -81,7 +121,10 @@ export default function TerminalPane({ record, visible, attempt, onStatus }) {
       socket.onclose = () => { stopUploads(); if (!state.disposed && !finished) { status('closed'); terminal.writeln('\r\n\x1b[90m연결이 종료되었습니다. 다시 연결할 수 있습니다.\x1b[0m'); } };
     }).catch(error => { if (!state.disposed) { status('error'); terminal.writeln(`\r\n${errorMessage(error)}`); } });
     return () => {
-      state.disposed = true; stopUploads(); observer.disconnect(); input.dispose(); socket?.close(1000, 'Tab closed'); terminal.dispose();
+      state.disposed = true; stopUploads(); observer.disconnect(); input.dispose(); socket?.close(1000, 'Tab closed');
+      terminal.element.removeEventListener('paste', clearModifiers, true);
+      terminal.dispose();
+      if (terminalRef.current === terminal) terminalRef.current = null;
     };
   }, [record._id, attempt]);
 
@@ -174,5 +217,7 @@ export default function TerminalPane({ record, visible, attempt, onStatus }) {
       {notice && <p className="upload-error">{notice}</p>}
       {jobs.map(job => <div key={job.id} className={`upload-item ${job.status}`}><span title={job.path || job.name}>{job.name}</span><small>{sizeLabel(job.size)}</small><span>{job.status === 'done' ? '저장 완료' : job.status === 'error' ? job.message : job.status === 'sending' ? `${job.progress}%${job.progress === 99 ? ' · 서버 저장 중' : ''}` : job.status === 'preparing' ? '저장 경로 확인 중…' : '대기 중'}</span>{job.status === 'sending' && <progress max="100" value={job.progress} />}</div>)}
     </div>}
+    <TerminalKeyboard connected={connected} visible={visible} mode={keyboardMode} modifiers={modifiers}
+      onMode={changeKeyboard} onModifiers={next => { updateModifiers(next); if (visible && connected) terminalRef.current?.focus(); }} onKey={pressKey} />
   </section>;
 }
